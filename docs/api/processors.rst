@@ -49,6 +49,7 @@ Available Processors
 - ``TimeseriesProcessor``: For time-series data; optional ``normalization`` (``"zscore"`` or ``"minmax"``, fitted on the training split) and ``missing_indicators``
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
 - ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
+- ``EmbeddingPCAProcessor``: Fixed-length embeddings, z-scored and PCA-reduced with statistics fitted on the training split
 - ``RawProcessor``: Pass-through processor for raw data
 
 **Specialized Processors:**
@@ -573,6 +574,7 @@ API Reference
     processors/pyhealth.processors.RawProcessor
     processors/pyhealth.processors.IgnoreProcessor
     processors/pyhealth.processors.MultiHotProcessor
+    processors/pyhealth.processors.EmbeddingPCAProcessor
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
     processors/pyhealth.processors.GraphProcessor

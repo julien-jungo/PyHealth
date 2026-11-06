@@ -70,6 +70,7 @@ from .mortality_prediction import (
 )
 from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
+from .survival import MultimodalSurvivalPrediction as MultimodalSurvivalPrediction
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )

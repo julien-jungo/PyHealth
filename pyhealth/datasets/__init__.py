@@ -74,6 +74,7 @@ from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
 from .tcga_prad import TCGAPRADDataset
+from .tcga_survival import TCGAMultimodalDataset as TCGAMultimodalDataset
 from .splitter import (
     PatientSplit as PatientSplit,
     Split as Split,

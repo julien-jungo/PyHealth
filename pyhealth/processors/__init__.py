@@ -26,6 +26,7 @@ from .label_processor import (
     RegressionLabelProcessor,
 )
 from .multi_hot_processor import MultiHotProcessor
+from .embedding_pca_processor import EmbeddingPCAProcessor
 from .nested_multihot_processor import NestedMultiHotProcessor
 from .nested_sequence_processor import (
     NestedFloatsProcessor,
@@ -79,6 +80,7 @@ __all__ = [
     "ImageProcessor",
     "LabelProcessor",
     "MultiHotProcessor",
+    "EmbeddingPCAProcessor",
     "NestedFloatsProcessor",
     "NestedMultiHotProcessor",
     "NestedSequenceProcessor",
