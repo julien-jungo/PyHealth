@@ -19,7 +19,8 @@ Experimental setup:
 
 Ablations (novel relative to the paper):
     TODO: two-stage (paper) vs. joint fusion; linear vs. MLP head;
-    hidden_dim / dropout / learning-rate sweep.
+    hidden_dim / dropout / learning-rate sweep. Build options per head:
+    hidden_dim and dropout raise with head="linear".
 
 Results:
     TODO: table of mean ± std C-index over folds, and per-cohort C-index next
