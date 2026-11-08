@@ -14,6 +14,8 @@ Pipeline (per cross-validation fold):
 
 Experimental setup:
     TODO: data, folds, PCA dims, optimizer, epochs, ridge weight_decay mapping.
+    Train full-batch (batch_size = training fold size), so the Cox risk sets
+    match the paper's full partial likelihood.
 
 Ablations (novel relative to the paper):
     TODO: two-stage (paper) vs. joint fusion; linear vs. MLP head;
@@ -55,9 +57,11 @@ class FoldSplit(Split):
     def split_indices(
         self, patient_to_index: Mapping[str, Sequence[int]]
     ) -> list[np.ndarray]:
+        """Returns the training indices, then the fold's test indices."""
         raise NotImplementedError
 
     def to_dict(self) -> dict:
+        """Returns the fold's test patients, for the processed-cache key."""
         raise NotImplementedError
 
 
@@ -77,6 +81,7 @@ def run_fold(root: str, fold: int) -> dict[str, float]:
 
 
 def main() -> None:
+    """Runs the pipeline on --root or on synthetic data and prints results."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument(
