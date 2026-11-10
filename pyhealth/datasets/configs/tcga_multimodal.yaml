@@ -1,0 +1,45 @@
+# TCGA multimodal survival cohort (Song et al., ML4H 2025).
+# Every file below is written by TCGAMultimodalDataset.prepare_metadata() from
+# clinical.csv, split_cases.csv, and embeddings/<modality>/<patient>/<file>.npy.
+# A column that is not listed under `attributes` is dropped by BaseDataset, so
+# the clinical table lists every column of the authors' clinical.csv.
+
+#TODO ensure that the following columns are as expected
+
+version: "1.0"
+tables:
+  clinical:
+    file_path: "tcga_multimodal_clinical-pyhealth.csv"
+    patient_id: "case_id"
+    timestamp: null
+    attributes:
+      - "project"
+      - "sex"
+      - "age"
+      - "race"
+      - "ethnicity"
+      - "vital_status"
+      - "days_to_death"
+      - "days_to_last_follow_up"
+      - "fold"
+  expression:
+    file_path: "tcga_multimodal_expression-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "file_id"
+      - "embedding_path"
+  histology:
+    file_path: "tcga_multimodal_histology-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "file_id"
+      - "embedding_path"
+  report:
+    file_path: "tcga_multimodal_report-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "file_id"
+      - "embedding_path"
