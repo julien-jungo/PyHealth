@@ -1,7 +1,13 @@
 """Multimodal time-to-event survival task for TCGA.
 
-Follows Song et al., "Multimodal Cancer Modeling in the Age of Foundation
-Model Embeddings", ML4H 2025 (https://arxiv.org/abs/2505.07683).
+Contributors: Julien David Jungo (jjungo2), Donovan Scott Below (dbelow2),
+    Yaseen Mohamed (yaseenm2)
+Paper: Song et al., "Multimodal Cancer Modeling in the Age of Foundation Model
+    Embeddings", ML4H 2025
+Paper link: https://proceedings.mlr.press/v297/song26a.html
+Description: Overall survival (time to death, right-censored at last
+    follow-up) from precomputed foundation-model embeddings and clinical
+    features, one sample per patient.
 """
 
 from typing import Any
