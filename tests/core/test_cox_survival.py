@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataloader
 from pyhealth.metrics import concordance_index
 from pyhealth.models import CoxSurvivalModel
 from pyhealth.models.cox_survival import DEFAULT_DROPOUT, DEFAULT_HIDDEN_DIM
@@ -49,7 +49,7 @@ def _samples(n: int, seed: int = 0) -> list[dict]:
     return samples
 
 
-def _dataset(samples: list[dict], input_schema: dict = INPUT_SCHEMA):
+def _dataset(samples: list[dict], input_schema: dict = INPUT_SCHEMA) -> SampleDataset:
     return create_sample_dataset(
         samples=samples,
         input_schema=input_schema,
@@ -102,12 +102,23 @@ class _NoValueProcessor(_NoSizeProcessor):
 
 
 class TestCoxSurvivalModel(unittest.TestCase):
-    def setUp(self):
-        torch.manual_seed(0)
-        self.dataset = _dataset(_samples(N_PATIENTS))
-        self.batch = next(iter(get_dataloader(self.dataset, batch_size=N_PATIENTS)))
+    dataset: SampleDataset
+    _batch: dict[str, Any]
 
-    def test_initialization(self):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.dataset = _dataset(_samples(N_PATIENTS))
+        cls._batch = next(iter(get_dataloader(cls.dataset, batch_size=N_PATIENTS)))
+
+    def setUp(self) -> None:
+        torch.manual_seed(0)
+        # Each test gets its own tensors, so no test can leak changes to another.
+        self.batch = {
+            key: value.clone() if isinstance(value, torch.Tensor) else value
+            for key, value in self._batch.items()
+        }
+
+    def test_initialization(self) -> None:
         model = CoxSurvivalModel(self.dataset)
         self.assertEqual(model.feature_keys, ["expr", "hist", "canc"])
         self.assertEqual(model.duration_key, "duration")
@@ -122,13 +133,13 @@ class TestCoxSurvivalModel(unittest.TestCase):
         self.assertIsNone(model.hidden_dim)
         self.assertIsNone(model.dropout)
 
-    def test_mlp_head_defaults(self):
+    def test_mlp_head_defaults(self) -> None:
         model = CoxSurvivalModel(self.dataset, head="mlp")
         self.assertEqual(model.head_type, "mlp")
         self.assertEqual(model.hidden_dim, DEFAULT_HIDDEN_DIM)
         self.assertEqual(model.dropout, DEFAULT_DROPOUT)
 
-    def test_mlp_head_initialization(self):
+    def test_mlp_head_initialization(self) -> None:
         model = CoxSurvivalModel(
             self.dataset, head="mlp", hidden_dim=HIDDEN_DIM, dropout=0.25
         )
@@ -152,7 +163,7 @@ class TestCoxSurvivalModel(unittest.TestCase):
         )
         self.assertEqual([m.p for m in dropouts], [0.25])
 
-    def test_invalid_head_options_raise(self):
+    def test_invalid_head_options_raise(self) -> None:
         invalid = [
             {"head": "cnn"},
             {"head": "mlp", "hidden_dim": 0},
@@ -165,7 +176,7 @@ class TestCoxSurvivalModel(unittest.TestCase):
             with self.subTest(**kwargs), self.assertRaises(ValueError):
                 CoxSurvivalModel(self.dataset, **kwargs)
 
-    def test_dropout_is_only_active_in_training(self):
+    def test_dropout_is_only_active_in_training(self) -> None:
         model = CoxSurvivalModel(
             self.dataset, head="mlp", hidden_dim=HIDDEN_DIM, dropout=0.5
         )
@@ -179,10 +190,10 @@ class TestCoxSurvivalModel(unittest.TestCase):
             torch.equal(model(**self.batch)["risk"], model(**self.batch)["risk"])
         )
 
-    def test_mode_is_none(self):
+    def test_mode_is_none(self) -> None:
         self.assertIsNone(CoxSurvivalModel(self.dataset).mode)
 
-    def test_invalid_keys_raise(self):
+    def test_invalid_keys_raise(self) -> None:
         invalid = [
             {"feature_keys": ["missing"]},
             {"feature_keys": ["duration"]},
@@ -194,7 +205,7 @@ class TestCoxSurvivalModel(unittest.TestCase):
             with self.subTest(**kwargs), self.assertRaises(ValueError):
                 CoxSurvivalModel(self.dataset, **kwargs)
 
-    def test_forward_output_keys_and_shapes(self):
+    def test_forward_output_keys_and_shapes(self) -> None:
         for head, options in HEAD_OPTIONS.items():
             with self.subTest(head=head):
                 model = CoxSurvivalModel(self.dataset, head=head, **options)
@@ -214,12 +225,12 @@ class TestCoxSurvivalModel(unittest.TestCase):
                     torch.cat([self.batch["duration"], self.batch["event"]], dim=-1),
                 )
 
-    def test_forward_without_labels_has_no_loss(self):
+    def test_forward_without_labels_has_no_loss(self) -> None:
         features = {key: self.batch[key] for key in INPUT_SCHEMA}
         out = CoxSurvivalModel(self.dataset)(**features)
         self.assertEqual(set(out), {"risk", "logit", "y_prob"})
 
-    def test_feature_keys_subset_for_unimodal_model(self):
+    def test_feature_keys_subset_for_unimodal_model(self) -> None:
         model = CoxSurvivalModel(self.dataset, feature_keys=["hist"])
         self.assertEqual(model.feature_keys, ["hist"])
         self.assertEqual(model.head.in_features, HIST_DIM)
@@ -231,7 +242,7 @@ class TestCoxSurvivalModel(unittest.TestCase):
         )
         torch.testing.assert_close(model(**noisy)["risk"], model(**self.batch)["risk"])
 
-    def test_loss_finite_and_gradients_flow(self):
+    def test_loss_finite_and_gradients_flow(self) -> None:
         for head, options in HEAD_OPTIONS.items():
             with self.subTest(head=head):
                 model = CoxSurvivalModel(self.dataset, head=head, **options)
@@ -243,7 +254,7 @@ class TestCoxSurvivalModel(unittest.TestCase):
                     self.assertIsNotNone(param.grad, name)
                     self.assertGreater(param.grad.abs().sum().item(), 0.0, name)
 
-    def test_all_censored_batch_has_zero_loss(self):
+    def test_all_censored_batch_has_zero_loss(self) -> None:
         batch = dict(self.batch, event=torch.zeros_like(self.batch["event"]))
         for head, options in HEAD_OPTIONS.items():
             with self.subTest(head=head):
@@ -257,7 +268,7 @@ class TestCoxSurvivalModel(unittest.TestCase):
                         param.grad, torch.zeros_like(param), msg=name
                     )
 
-    def test_fields_that_are_not_dense_vectors_raise(self):
+    def test_fields_that_are_not_dense_vectors_raise(self) -> None:
         samples = [
             dict(
                 sample,
@@ -298,7 +309,7 @@ class TestCoxSurvivalModel(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, message):
                 CoxSurvivalModel(dataset, feature_keys=[key])
 
-    def test_training_on_known_signal_reaches_min_c_index(self):
+    def test_training_on_known_signal_reaches_min_c_index(self) -> None:
         train = _dataset(_samples(SIGNAL_PATIENTS, seed=1))
         test = _dataset(_samples(SIGNAL_PATIENTS, seed=2))
         for head in SIGNAL_HEAD_OPTIONS:

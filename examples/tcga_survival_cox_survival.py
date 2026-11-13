@@ -1,9 +1,13 @@
 """Multimodal cancer survival on TCGA with CoxSurvivalModel: pipeline + ablation.
 
-Reproduces Song et al., "Multimodal Cancer Modeling in the Age of Foundation
-Model Embeddings", ML4H 2025 (https://arxiv.org/abs/2505.07683): per-modality
-Cox models on standardized, PCA-reduced foundation-model embeddings, combined
-by two-stage late fusion.
+Contributors: Julien David Jungo (jjungo2), Donovan Scott Below (dbelow2),
+    Yaseen Mohamed (yaseenm2)
+Paper: Song et al., "Multimodal Cancer Modeling in the Age of Foundation Model
+    Embeddings", ML4H 2025
+Paper link: https://proceedings.mlr.press/v297/song26a.html
+Description: Reproduces the paper's per-modality Cox models on
+    standardized, PCA-reduced foundation-model embeddings, combined by
+    two-stage late fusion, and ablates the fusion and the risk head.
 
 Pipeline (per cross-validation fold):
     TCGAMultimodalDataset -> MultimodalSurvivalPrediction
@@ -33,8 +37,8 @@ Findings:
     TODO
 
 Usage:
-    python examples/tcga_survival_cox.py --synthetic
-    python examples/tcga_survival_cox.py --root /path/to/data
+    python examples/tcga_survival_cox_survival.py --synthetic
+    python examples/tcga_survival_cox_survival.py --root /path/to/data
 """
 
 import argparse
@@ -127,7 +131,15 @@ class FoldSplit(Split):
 
 
 def _embed(signal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """Hides a latent signal in a few random directions of noisy embeddings."""
+    """Hides a latent signal in a few random directions of noisy embeddings.
+
+    Args:
+        signal: Latent signal, shape ``[n_patients, n_signal_dims]``.
+        rng: Random generator for the directions and the noise.
+
+    Returns:
+        Embeddings of shape ``[n_patients, SYNTHETIC_EMBEDDING_DIM]``, float32.
+    """
     directions, _ = np.linalg.qr(
         rng.normal(size=(SYNTHETIC_EMBEDDING_DIM, signal.shape[1]))
     )
@@ -138,7 +150,17 @@ def _embed(signal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
 def _write_embeddings(
     path: Path, case_ids: list[str], embeddings: np.ndarray, n_sources: np.ndarray
 ) -> None:
-    """Writes one modality's table with a ``list<float32>`` embedding column."""
+    """Writes one modality's table with a ``list<float32>`` embedding column.
+
+    Args:
+        path: Output parquet file; overwritten if it exists.
+        case_ids: TCGA case ID of each row.
+        embeddings: One embedding per case, shape ``[n_patients, dim]``.
+        n_sources: Number of source files averaged into each embedding.
+
+    Returns:
+        None. The table is written to ``path``.
+    """
     table = pa.table(
         {
             "case_id": case_ids,
@@ -154,6 +176,13 @@ def _assign_folds(cohort: np.ndarray, rng: np.random.Generator) -> np.ndarray:
 
     Fold sizes differ by at most one, and each cohort is spread as evenly as
     its size allows (a cohort smaller than ``N_FOLDS`` misses some folds).
+
+    Args:
+        cohort: Cohort index of each patient.
+        rng: Random generator for the shuffle within each cohort.
+
+    Returns:
+        The fold of each patient, in ``[0, N_FOLDS)``.
     """
     order = np.lexsort((rng.random(len(cohort)), cohort))
     fold = np.empty(len(cohort), dtype=np.int64)
@@ -226,7 +255,15 @@ def write_synthetic_data(root: str, n_patients: int = 300, seed: int = 0) -> Non
 
 
 def run_fold(root: str, fold: int) -> dict[str, float]:
-    """Trains and evaluates every configuration on one fold."""
+    """Trains and evaluates every configuration on one fold.
+
+    Args:
+        root: Dataset directory that also holds ``folds.csv``.
+        fold: Fold whose patients form the test set.
+
+    Returns:
+        C-index per configuration name.
+    """
     # TODO: stage 1, stage 2, ablations; return C-index per
     # configuration (and per cohort). On synthetic data, PCA components must
     # not exceed SYNTHETIC_EMBEDDING_DIM (the task's 256 default would raise).

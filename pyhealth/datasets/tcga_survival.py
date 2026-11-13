@@ -1,12 +1,17 @@
 """TCGA multimodal survival dataset for PyHealth.
 
-Precomputed foundation-model embeddings and clinical data for TCGA cases, as
-used by Song et al., "Multimodal Cancer Modeling in the Age of Foundation Model
-Embeddings", ML4H 2025 (https://arxiv.org/abs/2505.07683).
+Contributors: Julien David Jungo (jjungo2), Donovan Scott Below (dbelow2),
+    Yaseen Mohamed (yaseenm2)
+Paper: Song et al., "Multimodal Cancer Modeling in the Age of Foundation Model
+    Embeddings", ML4H 2025
+Paper link: https://proceedings.mlr.press/v297/song26a.html
+Description: Precomputed foundation-model embeddings (RNA-seq, histology,
+    pathology reports) and clinical data for TCGA cases, as used by the paper.
 """
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from .base_dataset import BaseDataset
 
@@ -54,7 +59,7 @@ class TCGAMultimodalDataset(BaseDataset):
         tables: list[str] | None = None,
         dataset_name: str | None = None,
         config_path: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         if config_path is None:
             config_path = Path(__file__).parent / "configs" / "tcga_survival.yaml"

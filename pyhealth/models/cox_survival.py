@@ -1,10 +1,13 @@
 """Cox proportional hazards model over dense per-patient features.
 
-Reproduces the survival models of Song et al., "Multimodal Cancer Modeling in
-the Age of Foundation Model Embeddings", ML4H 2025
-(https://arxiv.org/abs/2505.07683): a linear Cox model on precomputed,
-standardized and PCA-reduced foundation-model embeddings, with an optional MLP
-head as an extension.
+Contributors: Julien David Jungo (jjungo2), Donovan Scott Below (dbelow2),
+    Yaseen Mohamed (yaseenm2)
+Paper: Song et al., "Multimodal Cancer Modeling in the Age of Foundation Model
+    Embeddings", ML4H 2025
+Paper link: https://proceedings.mlr.press/v297/song26a.html
+Description: Reproduces the paper's survival models: a linear Cox model on
+    precomputed, standardized and PCA-reduced foundation-model embeddings, with
+    an optional MLP head as an extension.
 """
 
 from dataclasses import dataclass
@@ -188,6 +191,22 @@ class CoxSurvivalModel(BaseModel):
         self.head = _build_head(width, mlp)
 
     def _feature_width(self, key: str) -> int:
+        """Returns the width of a feature field after flattening.
+
+        Checks that the field's processor yields one dense vector of fixed
+        width per sample, so the head's input size is known at build time.
+
+        Args:
+            key: Input field of ``self.dataset``.
+
+        Returns:
+            The number of values the field adds to the head's input.
+
+        Raises:
+            ValueError: If the processor lacks a shape method or is not fitted,
+                has no fixed width, holds token indices, has no ``"value"``
+                output, or yields more than one dimension per sample.
+        """
         processor = self.dataset.input_processors[key]
         name = f"feature {key!r} ({type(processor).__name__})"
 
@@ -209,6 +228,17 @@ class CoxSurvivalModel(BaseModel):
         return size
 
     def _feature_value(self, key: str, feature: Tensor | tuple[Tensor, ...]) -> Tensor:
+        """Extracts a feature field's values as a flat float batch.
+
+        Args:
+            key: Input field of ``self.dataset``.
+            feature: The collated field: a tensor, or a tuple ordered as the
+                processor's ``schema()``.
+
+        Returns:
+            The ``"value"`` part as a ``[B, width]`` float32 tensor on the
+            model's device.
+        """
         if isinstance(feature, Tensor):
             feature = (feature,)
         schema = self.dataset.input_processors[key].schema()
@@ -216,6 +246,15 @@ class CoxSurvivalModel(BaseModel):
         return value.to(self.device, torch.float32).flatten(start_dim=1)
 
     def _label(self, key: str, kwargs: dict) -> Tensor:
+        """Extracts a label field as a flat float batch.
+
+        Args:
+            key: Output field, ``duration_key`` or ``event_key``.
+            kwargs: The collated batch passed to ``forward``.
+
+        Returns:
+            The label as a ``[B]`` float32 tensor on the model's device.
+        """
         return torch.as_tensor(kwargs[key]).to(self.device, torch.float32).reshape(-1)
 
     def forward(self, **kwargs: Any) -> dict[str, Tensor]:

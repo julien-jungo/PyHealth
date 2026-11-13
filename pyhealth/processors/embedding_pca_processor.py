@@ -1,3 +1,14 @@
+"""Embedding standardization and PCA processor.
+
+Contributors: Julien David Jungo (jjungo2), Donovan Scott Below (dbelow2),
+    Yaseen Mohamed (yaseenm2)
+Paper: Song et al., "Multimodal Cancer Modeling in the Age of Foundation Model
+    Embeddings", ML4H 2025
+Paper link: https://proceedings.mlr.press/v297/song26a.html
+Description: Z-scores fixed-length foundation-model embeddings and reduces
+    them with PCA, both fitted on the training split, as in the paper.
+"""
+
 from collections.abc import Iterable
 from typing import Any
 
@@ -80,12 +91,15 @@ class EmbeddingPCAProcessor(FeatureProcessor):
         return False
 
     def schema(self) -> tuple[str, ...]:
+        """Returns ``("value",)``: one tensor per sample."""
         return ("value",)
 
     def dim(self) -> tuple[int, ...]:
+        """Returns ``(1,)``: the value is a 1-D vector."""
         return (1,)
 
     def spatial(self) -> tuple[bool, ...]:
+        """Returns ``(False,)``: the vector has no spatial axis."""
         return (False,)
 
     def __repr__(self) -> str:
