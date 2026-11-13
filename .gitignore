@@ -159,3 +159,19 @@ test-resources/meds_demo/
 # Generated Synthea outputs and dataset caches
 .artifacts/
 examples/.artifacts/
+
+# BEGIN DL4H DATA PRIVACY
+# Do not commit patient data, generated embeddings or caches.
+data/**/embeddings/
+data/**/*.npy
+data/**/*.npz
+data/**/*.h5
+data/**/*.hdf5
+data/**/*.tar.gz
+data/**/tcga_data/
+data/**/tcga_data_full/
+data/**/DL4H_private/
+data/**/.ipynb_checkpoints/
+data/**/.env
+data/**/.env.*
+# END DL4H DATA PRIVACY
