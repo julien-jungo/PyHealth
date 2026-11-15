@@ -191,7 +191,9 @@ class TestCoxSurvivalModel(unittest.TestCase):
         )
 
     def test_mode_is_none(self) -> None:
-        self.assertIsNone(CoxSurvivalModel(self.dataset).mode)
+        model = CoxSurvivalModel(self.dataset)
+        self.assertEqual(model.label_processors, {})
+        self.assertIsNone(model.mode)
 
     def test_invalid_keys_raise(self) -> None:
         invalid = [

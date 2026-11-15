@@ -27,6 +27,19 @@ class TCGAMultimodalDataset(BaseDataset):
     generated outside PyHealth with the authors' code
     (https://github.com/StevenSong/multimodal-cancer-modeling).
 
+    Getting the data:
+        - Source: https://github.com/StevenSong/multimodal-cancer-modeling
+          (``data/README.md``), built from GDC TCGA data
+          (https://portal.gdc.cancer.gov/).
+        - Access: clinical data, RNA-seq and the summarized reports are open.
+          The UNI2-h histology features
+          (https://huggingface.co/datasets/MahmoodLab/UNI2-h-features) need
+          an approved access request on Hugging Face.
+        - Download: follow the authors' ``data/README.md`` (``gdc-client``,
+          ``huggingface-cli``), then generate the embeddings with their
+          ``embed`` scripts and write one parquet per modality.
+        - ``root``: the folder with the layout below.
+
     Expected layout under ``root``::
 
         clinical.csv              case_id, project, sex, age, race, ethnicity,

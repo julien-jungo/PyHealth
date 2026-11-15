@@ -20,6 +20,7 @@ from torch import Tensor
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.trajsurv import cox_partial_likelihood_loss
+from pyhealth.processors import LabelProcessor
 from pyhealth.processors.base_processor import FeatureProcessor
 
 __all__ = ["CoxSurvivalModel"]
@@ -154,6 +155,14 @@ class CoxSurvivalModel(BaseModel):
         torch.Size([2])
     """
 
+    @property
+    def label_processors(self) -> dict[str, LabelProcessor]:
+        """Returns no label processors, so the Trainer reports only the loss.
+
+        The survival outputs are scored by the model, not as a label.
+        """
+        return {}
+
     def __init__(
         self,
         dataset: SampleDataset,
@@ -165,7 +174,6 @@ class CoxSurvivalModel(BaseModel):
         dropout: float | None = None,
     ) -> None:
         super().__init__(dataset)
-        self.mode = None
 
         feature_keys = (
             list(dataset.input_schema) if feature_keys is None else feature_keys

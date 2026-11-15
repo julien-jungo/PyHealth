@@ -15,11 +15,11 @@ from typing import Any
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import LegacyFeatureProcessor
 
 
 @register_processor("embedding_pca")
-class EmbeddingPCAProcessor(FeatureProcessor):
+class EmbeddingPCAProcessor(LegacyFeatureProcessor):
     """Standardizes a fixed-length embedding and reduces it with PCA.
 
     ``fit()`` learns a z-score (``StandardScaler``) and, unless

@@ -21,7 +21,8 @@ EMBEDDING_MODALITIES = ("expr", "hist", "text")
 class MultimodalSurvivalPrediction(BaseTask):
     """Predicts overall survival from embeddings and clinical features.
 
-    Emits one sample per patient with all modalities:
+    Runs on :class:`~pyhealth.datasets.TCGAMultimodalDataset`. Emits one
+    sample per patient with all modalities:
 
     - ``expr``, ``hist``, ``text``: raw precomputed embeddings (RNA-seq,
       histology, pathology report), standardized and PCA-reduced by
