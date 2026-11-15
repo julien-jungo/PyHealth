@@ -486,7 +486,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - No
      - —
    * - :doc:`TCGA multimodal survival <datasets/pyhealth.datasets.TCGAMultimodalDataset>`
-     - Open; UNI2-h features: request
+     - Open (UNI2-h features: request)
      - `GitHub <https://github.com/StevenSong/multimodal-cancer-modeling>`__
      - No
      - —

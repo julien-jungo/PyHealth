@@ -8,9 +8,6 @@ Model Embeddings <https://arxiv.org/abs/2505.07683>`_, ML4H 2025. Embeddings
 are generated with the authors' code
 (https://github.com/StevenSong/multimodal-cancer-modeling).
 
-TODO: data access (GDC, gated UNI2-h features and their license) and the
-expected file layout.
-
 .. autoclass:: pyhealth.datasets.TCGAMultimodalDataset
     :members:
     :undoc-members:
