@@ -107,11 +107,14 @@ class CoxSurvivalModel(BaseModel):
     (``batch_size`` = training set size) with the paper's ridge penalty
     rescaled to ``weight_decay``, the linear head is the ridge CoxPH of the
     paper. That mapping applies to the linear head only: on the MLP head,
-    ``weight_decay`` also shrinks the hidden layer's weights and biases.
+    ``weight_decay`` also shrinks the hidden layer's weights. ``Trainer``
+    applies no decay to parameters named ``bias``, so the hidden layer's
+    biases are not shrunk.
 
     Labels follow :class:`~pyhealth.models.TrajSurv`: ``duration`` and
     ``event`` tensor outputs. ``mode`` is ``None``, so evaluate with
-    :func:`pyhealth.metrics.concordance_index` on ``Trainer.inference`` output.
+    :func:`~pyhealth.metrics.survival.concordance_index` on
+    ``Trainer.inference`` output.
 
     Args:
         dataset: Fitted ``SampleDataset`` with dense feature fields and
