@@ -19,20 +19,25 @@ Pipeline (per cross-validation fold, the paper's 5 folds from ``split_cases.csv`
 
 Ablations (novel relative to the paper):
     - Two-stage vs. joint fusion ("joint": one linear model, all modalities).
+    - In-sample vs. out-of-fold stage-1 risks for stage 2 ("two-stage oof",
+      only with ``--oof``: 25 more stage-1 fits per fold).
     - Linear vs. MLP head ("two-stage mlp", "joint mlp").
     - Hyperparameter sweep on "joint mlp": hidden_dim, dropout, learning rate.
 
 Results (real, the 10 smallest TCGA cohorts, 873 patients, PCA 256): two-stage
 fusion reaches C-index 0.711 ± 0.030, vs. 0.793 in the paper on all 32
 cohorts. It beats each embedding modality (0.660-0.664) but not cancer type
-alone (0.709). Setup, convergence checks, full synthetic and real tables,
-per-cohort results vs. the paper's Table 17, and caveats are in
+alone (0.709). Out-of-fold stage-1 risks ("two-stage oof", ``--oof``) reach
+0.739 ± 0.023.
+Setup, convergence checks, full synthetic and real tables, per-cohort results
+vs. the paper's Table 17, and caveats are in
 ``examples/tcga_survival_cox_survival.md``.
 
 Usage (synthetic data in a temp dir by default):
     python examples/tcga_survival_cox_survival.py
     python examples/tcga_survival_cox_survival.py --root /path/to/data \\
         --cache-dir /path/to/cache
+    python examples/tcga_survival_cox_survival.py --oof  # adds "two-stage oof"
 """
 
 import os
@@ -75,6 +80,7 @@ PAPER_RIDGE_ALPHA = 0.1
 PAPER_PCA_COMPONENTS = {"expr": 256, "hist": 256, "text": 256}
 SYNTHETIC_PCA_COMPONENTS = 8
 N_FOLDS = 5
+INNER_FOLDS = 5
 SEED = 0
 
 LEARNING_RATE = 1e-2
@@ -86,7 +92,10 @@ MLP_HIDDEN_DIM = 64
 
 FUSION_KEY = "risk"
 PAPER_FUSION = "two-stage"
+OOF_FUSION = "two-stage oof"
 PAPER_CONFIGS = ("demo", "canc", "expr", "hist", "text", PAPER_FUSION)
+OOF_COHORT_CONFIGS = (*PAPER_CONFIGS, OOF_FUSION)
+HAZARD_RATIO_FUSIONS = (PAPER_FUSION, OOF_FUSION)
 
 SYNTHETIC_COHORTS = ("TCGA-OV", "TCGA-UCS", "TCGA-UVM")
 SYNTHETIC_COHORT_LOG_HAZARD = (0.5, 0.0, -0.5)
@@ -140,6 +149,20 @@ class Predictions:
 
 
 @dataclass(frozen=True)
+class Fusion:
+    """Test predictions of a stage-2 model and its hazard ratios.
+
+    Attributes:
+        predictions: Fused risks on the test part.
+        hazard_ratios: Modality to ``exp(coef)`` of its z-scored stage-1
+            risk, as in the paper's Table 8.
+    """
+
+    predictions: Predictions
+    hazard_ratios: dict[str, float]
+
+
+@dataclass(frozen=True)
 class FoldResult:
     """Test C-index of each configuration on one fold.
 
@@ -147,10 +170,13 @@ class FoldResult:
         c_index: Configuration name to C-index over the fold's test patients.
         cohort_c_index: Configuration name to cancer type to C-index; NaN
             where a cohort has no comparable pair in the fold.
+        hazard_ratios: Fusion configuration name to modality to stage-2
+            hazard ratio.
     """
 
     c_index: dict[str, float]
     cohort_c_index: dict[str, dict[str, float]]
+    hazard_ratios: dict[str, dict[str, float]]
 
 
 def ridge_weight_decay(alpha: float, n_events: int) -> float:
@@ -308,22 +334,26 @@ def _write_embeddings(
             np.save(case_dir / f"source-{source}.npy", vector.astype(np.float32))
 
 
-def _assign_folds(cohort: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """Deals patients round-robin in cohort order, shuffled within each cohort.
+def _assign_folds(
+    group: np.ndarray, rng: np.random.Generator, n_folds: int = N_FOLDS
+) -> np.ndarray:
+    """Deals patients round-robin in group order, shuffled within each group.
 
-    Fold sizes differ by at most one, and each cohort is spread as evenly as
-    its size allows (a cohort smaller than ``N_FOLDS`` misses some folds).
+    Fold sizes differ by at most one, and each group (e.g. cohort or event
+    status) is spread as evenly as its size allows (a group smaller than
+    ``n_folds`` misses some folds).
 
     Args:
-        cohort: Cohort index of each patient.
-        rng: Random generator for the shuffle within each cohort.
+        group: Group of each patient.
+        rng: Random generator for the shuffle within each group.
+        n_folds: Number of folds.
 
     Returns:
-        The fold of each patient, in ``[0, N_FOLDS)``.
+        The fold of each patient, in ``[0, n_folds)``.
     """
-    order = np.lexsort((rng.random(len(cohort)), cohort))
-    fold = np.empty(len(cohort), dtype=np.int64)
-    fold[order] = np.arange(len(cohort)) % N_FOLDS
+    order = np.lexsort((rng.random(len(group)), group))
+    fold = np.empty(len(group), dtype=np.int64)
+    fold[order] = np.arange(len(group)) % n_folds
     return fold
 
 
@@ -434,14 +464,13 @@ def _predict(trainer: Trainer, dataset: SampleDataset) -> Predictions:
     )
 
 
-def fit_predict(
+def fit(
     train: SampleDataset,
-    test: SampleDataset,
     feature_keys: Sequence[str],
     config: HeadConfig,
     n_events: int,
-) -> tuple[Predictions, Predictions]:
-    """Trains one ``CoxSurvivalModel`` full-batch and scores both parts.
+) -> Trainer:
+    """Trains one ``CoxSurvivalModel`` full-batch.
 
     The ridge penalty is the paper's, rescaled by :func:`ridge_weight_decay`.
     It applies to every head; only for the linear head does it equal the
@@ -449,14 +478,12 @@ def fit_predict(
 
     Args:
         train: Training part; its fitted processors define the features.
-        test: Test part, scored with the trained model.
         feature_keys: Input fields of the model.
         config: Head and optimizer options.
         n_events: Observed events in ``train``, for the ridge rescaling.
 
     Returns:
-        Predictions on ``train`` (in-sample, as the paper feeds stage 2),
-        then on ``test``.
+        The trainer that holds the fitted model.
     """
     torch.manual_seed(SEED)
     model = CoxSurvivalModel(
@@ -475,7 +502,30 @@ def fit_predict(
         optimizer_params={"lr": config.learning_rate},
         weight_decay=ridge_weight_decay(PAPER_RIDGE_ALPHA, n_events),
     )
+    return trainer
 
+
+def fit_predict(
+    train: SampleDataset,
+    test: SampleDataset,
+    feature_keys: Sequence[str],
+    config: HeadConfig,
+    n_events: int,
+) -> tuple[Predictions, Predictions]:
+    """Trains one model with :func:`fit` and scores both parts.
+
+    Args:
+        train: Training part.
+        test: Test part, scored with the trained model.
+        feature_keys: Input fields of the model.
+        config: Head and optimizer options.
+        n_events: Observed events in ``train``.
+
+    Returns:
+        Predictions on ``train`` (in-sample, as the paper feeds stage 2),
+        then on ``test``.
+    """
+    trainer = fit(train, feature_keys, config, n_events)
     return _predict(trainer, train), _predict(trainer, test)
 
 
@@ -543,38 +593,120 @@ def fusion_datasets(
     return build(train_samples), build(_risk_samples(test))
 
 
-def two_stage(
+def stage1(
     train: SampleDataset,
     test: SampleDataset,
     modalities: Sequence[str],
     config: HeadConfig,
-    n_events: int,
-) -> tuple[dict[str, Predictions], Predictions]:
-    """Runs the paper's late fusion: unimodal Cox models, then Cox on risks.
+) -> tuple[dict[str, Predictions], dict[str, Predictions]]:
+    """Fits one unimodal Cox model per modality, the paper's stage 1.
 
     Args:
         train: Training part with every modality.
         test: Test part.
         modalities: Stage-1 modalities, one model each.
-        config: Head of the stage-1 models. Stage 2 is always the linear
-            Cox model, as in the paper.
-        n_events: Observed events in ``train``.
+        config: Head of the stage-1 models.
 
     Returns:
-        Test predictions per stage-1 modality, and of the fused model.
+        Predictions per modality on ``train`` (in-sample), then on ``test``.
     """
-    stage1 = {
+    n_events = _n_events(train)
+    parts = {
         modality: fit_predict(train, test, [modality], config, n_events)
         for modality in modalities
     }
-
-    fusion_train, fusion_test = fusion_datasets(
-        {modality: parts[0] for modality, parts in stage1.items()},
-        {modality: parts[1] for modality, parts in stage1.items()},
+    return (
+        {modality: train_test[0] for modality, train_test in parts.items()},
+        {modality: train_test[1] for modality, train_test in parts.items()},
     )
-    _, fused = fit_predict(fusion_train, fusion_test, [FUSION_KEY], LINEAR, n_events)
 
-    return {modality: parts[1] for modality, parts in stage1.items()}, fused
+
+def stage2(
+    train_risks: Mapping[str, Predictions],
+    test_risks: Mapping[str, Predictions],
+    n_events: int,
+) -> Fusion:
+    """Fits the linear Cox model on z-scored stage-1 risks, as in the paper.
+
+    Args:
+        train_risks: Stage-1 risks on the training part, per modality.
+        test_risks: Stage-1 risks on the test part, same modalities.
+        n_events: Observed events in the training part.
+
+    Returns:
+        The fused test predictions and one hazard ratio per modality.
+
+    Raises:
+        ValueError: If ``train_risks`` and ``test_risks`` have different
+            modalities or a different modality order.
+    """
+    if list(train_risks) != list(test_risks):
+        raise ValueError(
+            f"stage-2 modalities differ: train {list(train_risks)}, "
+            f"test {list(test_risks)}"
+        )
+
+    fusion_train, fusion_test = fusion_datasets(train_risks, test_risks)
+    trainer = fit(fusion_train, [FUSION_KEY], LINEAR, n_events)
+
+    coef = trainer.model.head.weight.detach().cpu().numpy().reshape(-1)
+    return Fusion(
+        predictions=_predict(trainer, fusion_test),
+        hazard_ratios=dict(zip(train_risks, np.exp(coef).tolist())),
+    )
+
+
+def out_of_fold_risks(
+    dataset: TCGAMultimodalDataset,
+    task: MultimodalSurvivalPrediction,
+    train_risks: Mapping[str, Predictions],
+    seed: int,
+) -> dict[str, Predictions]:
+    """Scores each training patient with stage-1 models that never saw it.
+
+    The training patients are dealt into ``INNER_FOLDS`` folds, stratified
+    by event. Each inner fold is scored by stage-1 models trained on the
+    other inner folds. Every inner ``set_task`` call fits the processors on
+    its inner training patients only; test patients take no part.
+
+    Args:
+        dataset: Dataset of the outer fold.
+        task: Task of the outer fold.
+        train_risks: In-sample stage-1 risks on the outer training part, per
+            modality; they give the patients, their order and their labels.
+        seed: Seed of the inner fold assignment.
+
+    Returns:
+        Out-of-fold stage-1 risks, in the order of ``train_risks``.
+    """
+    reference = next(iter(train_risks.values()))
+    events = dict(zip(reference.patient_ids, reference.event))
+    patient_ids = sorted(events)
+    rng = np.random.default_rng(seed)
+    inner_folds = dict(
+        zip(
+            patient_ids,
+            _assign_folds(np.array([events[p] for p in patient_ids]), rng, INNER_FOLDS),
+        )
+    )
+
+    risks: dict[str, dict[str, float]] = {modality: {} for modality in train_risks}
+    for inner_fold in range(INNER_FOLDS):
+        inner_train, held_out = dataset.set_task(
+            task, split=FoldSplit(inner_folds, inner_fold)
+        )
+        _, held_out_risks = stage1(inner_train, held_out, list(train_risks), LINEAR)
+
+        for modality, predictions in held_out_risks.items():
+            risks[modality].update(zip(predictions.patient_ids, predictions.risk))
+
+    return {
+        modality: replace(
+            predictions,
+            risk=np.array([risks[modality][p] for p in predictions.patient_ids]),
+        )
+        for modality, predictions in train_risks.items()
+    }
 
 
 def _cohort_c_index(
@@ -592,18 +724,23 @@ def _cohort_c_index(
 
 
 def score(
-    predictions: Mapping[str, Predictions], cancer_types: Mapping[str, str]
+    predictions: Mapping[str, Predictions],
+    cancer_types: Mapping[str, str],
+    hazard_ratios: Mapping[str, dict[str, float]],
 ) -> FoldResult:
     """Computes the pooled and per-cohort C-index of each configuration.
 
     Args:
         predictions: Test predictions per configuration name.
         cancer_types: Patient ID to TCGA project.
+        hazard_ratios: Stage-2 hazard ratios per fusion configuration.
 
     Returns:
-        The fold's C-index per configuration, pooled and per cohort.
+        The fold's C-index per configuration, pooled and per cohort, and
+        the hazard ratios.
     """
     return FoldResult(
+        hazard_ratios=dict(hazard_ratios),
         c_index={
             name: concordance_index(p.duration, p.event, p.risk)
             for name, p in predictions.items()
@@ -618,21 +755,25 @@ def run_fold(
     dataset: TCGAMultimodalDataset,
     fold: int,
     pca_components: Mapping[str, int | None],
+    oof: bool = False,
 ) -> FoldResult:
     """Trains and evaluates every configuration on one fold.
 
     Processors (z-score + PCA, one-hot) are fitted on the training patients
-    only, through ``set_task(task, split=FoldSplit(...))``.
+    only, through ``set_task(task, split=FoldSplit(...))``; so are those of
+    the inner folds of "two-stage oof".
 
     Args:
         dataset: Dataset with a fold for at least one patient. Patients
             without a fold are left out.
         fold: Fold whose patients form the test set.
         pca_components: PCA components per embedding modality.
+        oof: Whether to add "two-stage oof" (25 more stage-1 fits).
 
     Returns:
         C-index per configuration (unimodal, fused, ablations), pooled over
-        the fold's test patients and per cancer type.
+        the fold's test patients and per cancer type, and the stage-2 hazard
+        ratios of "two-stage" and "two-stage oof".
     """
     task = MultimodalSurvivalPrediction(
         **{f"{m}_components": n for m, n in pca_components.items()}
@@ -641,22 +782,57 @@ def run_fold(
     train, test = dataset.set_task(task, split=split)
     n_events = _n_events(train)
 
-    unimodal, fused = two_stage(train, test, task.modalities, LINEAR, n_events)
-    _, fused_mlp = two_stage(train, test, task.modalities, MLP, n_events)
-    predictions = {**unimodal, PAPER_FUSION: fused, "two-stage mlp": fused_mlp}
+    train_risks, test_risks = stage1(train, test, task.modalities, LINEAR)
+    fusions = {PAPER_FUSION: stage2(train_risks, test_risks, n_events)}
+    if oof:
+        fusions[OOF_FUSION] = stage2(
+            out_of_fold_risks(dataset, task, train_risks, seed=fold),
+            test_risks,
+            n_events,
+        )
+    fusions["two-stage mlp"] = stage2(
+        *stage1(train, test, task.modalities, MLP), n_events=n_events
+    )
 
+    predictions = {
+        **test_risks,
+        **{name: fusion.predictions for name, fusion in fusions.items()},
+    }
     for name, config in JOINT_CONFIGS.items():
         _, predictions[name] = fit_predict(
             train, test, task.modalities, config, n_events
         )
 
-    return score(predictions, dataset.get_cancer_types())
+    hazard_ratios = {
+        name: fusions[name].hazard_ratios
+        for name in HAZARD_RATIO_FUSIONS
+        if name in fusions
+    }
+    return score(predictions, dataset.get_cancer_types(), hazard_ratios)
 
 
 def summarize(results: Sequence[FoldResult]) -> pd.DataFrame:
     """Returns mean and std (ddof=1) of the C-index over folds, per config."""
     table = pd.DataFrame([r.c_index for r in results])
     return pd.DataFrame({"mean": table.mean(), "std": table.std()})
+
+
+def summarize_hazard_ratios(results: Sequence[FoldResult]) -> pd.DataFrame:
+    """Returns the mean stage-2 hazard ratio over folds, per modality.
+
+    Args:
+        results: One result per fold.
+
+    Returns:
+        One row per modality, one column per fusion configuration.
+    """
+    names = results[0].hazard_ratios
+    return pd.DataFrame(
+        {
+            name: pd.DataFrame([r.hazard_ratios[name] for r in results]).mean()
+            for name in names
+        }
+    )
 
 
 def summarize_cohorts(
@@ -689,6 +865,7 @@ def run(
     cache_dir: str | None,
     pca_components: Mapping[str, int | None],
     num_workers: int,
+    oof: bool = False,
 ) -> list[FoldResult]:
     """Loads the dataset and runs every fold.
 
@@ -700,6 +877,7 @@ def run(
         cache_dir: PyHealth cache directory; None for PyHealth's default.
         pca_components: PCA components per embedding modality.
         num_workers: Worker processes for the dataset and task.
+        oof: Whether to add "two-stage oof" to every fold.
 
     Returns:
         One result per fold, in fold order.
@@ -723,7 +901,8 @@ def run(
         )
 
     return [
-        run_fold(dataset, fold, pca_components) for fold in sorted(set(folds.values()))
+        run_fold(dataset, fold, pca_components, oof)
+        for fold in sorted(set(folds.values()))
     ]
 
 
@@ -745,6 +924,12 @@ def _parse_args() -> argparse.Namespace:
         "synthetic data",
     )
     parser.add_argument("--num-workers", type=int, default=1)
+    parser.add_argument(
+        "--oof",
+        action="store_true",
+        help='add the "two-stage oof" ablation: stage 2 on out-of-fold stage-1 '
+        "risks (25 more stage-1 fits per fold)",
+    )
     return parser.parse_args()
 
 
@@ -767,13 +952,16 @@ def main() -> None:
         if args.pca_components is not None:
             components = dict.fromkeys(EMBEDDING_MODALITIES, args.pca_components)
 
-        results = run(root, cache_dir, components, args.num_workers)
+        results = run(root, cache_dir, components, args.num_workers, args.oof)
+    cohort_configs = OOF_COHORT_CONFIGS if args.oof else PAPER_CONFIGS
 
     with pd.option_context("display.width", 120, "display.max_columns", None):
         print(f"\nC-index over {len(results)} folds:")
         print(summarize(results).round(3).to_string())
         print("\nPer-cohort C-index, mean ± std (folds with a comparable pair):")
-        print(summarize_cohorts(results).to_string())
+        print(summarize_cohorts(results, cohort_configs).to_string())
+        print("\nStage-2 hazard ratios exp(coef), mean over folds:")
+        print(summarize_hazard_ratios(results).round(3).to_string())
     print(f"\nRuntime: {time.perf_counter() - start:.0f} s")
 
 
