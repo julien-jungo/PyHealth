@@ -65,6 +65,7 @@ from pyhealth.datasets import (
     create_sample_dataset,
     get_dataloader,
 )
+from pyhealth.datasets.tcga_survival import NUM_FOLDS
 from pyhealth.metrics.survival import concordance_index
 from pyhealth.models import CoxSurvivalModel
 from pyhealth.models.cox_survival import Head
@@ -79,7 +80,6 @@ PAPER_RIDGE_ALPHA = 0.1
 # The paper's reported setting (results/analyze-results.ipynb, Table 1).
 PAPER_PCA_COMPONENTS = {"expr": 256, "hist": 256, "text": 256}
 SYNTHETIC_PCA_COMPONENTS = 8
-N_FOLDS = 5
 INNER_FOLDS = 5
 SEED = 0
 
@@ -335,7 +335,7 @@ def _write_embeddings(
 
 
 def _assign_folds(
-    group: np.ndarray, rng: np.random.Generator, n_folds: int = N_FOLDS
+    group: np.ndarray, rng: np.random.Generator, n_folds: int = NUM_FOLDS
 ) -> np.ndarray:
     """Deals patients round-robin in group order, shuffled within each group.
 
@@ -375,8 +375,8 @@ def write_synthetic_data(root: str, n_patients: int = 300, seed: int = 0) -> Non
     Raises:
         ValueError: If ``n_patients`` is smaller than the number of folds.
     """
-    if n_patients < N_FOLDS:
-        raise ValueError(f"n_patients must be at least {N_FOLDS}, got {n_patients}")
+    if n_patients < NUM_FOLDS:
+        raise ValueError(f"n_patients must be at least {NUM_FOLDS}, got {n_patients}")
 
     rng = np.random.default_rng(seed)
     root_path = Path(root)

@@ -151,6 +151,11 @@ target.
 | joint mlp p=0.3   | 0.705 ± 0.021 |       |
 | joint mlp lr=1e-3 | 0.689 ± 0.029 |       |
 
+After an interrupted run, delete the cache: PyHealth's `set_task` can leave
+a partial sample cache behind. The cache is the `--cache-dir` folder, or,
+without it, `<user cache dir>/pyhealth` (`~/.cache/pyhealth` on Linux,
+`~/Library/Caches/pyhealth` on macOS; the run logs the path).
+
 Per-cohort C-index, two-stage fusion vs. the best unimodal model of
 demo/expr/hist/text (mean over the folds with a comparable pair; DLBC has one
 in 4 folds). The paper's columns are from its Table 17: models trained on all

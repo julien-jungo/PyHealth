@@ -212,13 +212,14 @@ class TestTCGAMultimodal(unittest.TestCase):
 
     def test_malformed_split_file_raises(self) -> None:
         splits = pd.read_csv(self.root / "split_cases.csv")
+        out_of_range = f"outside 0-{NUM_FOLDS - 1}"
         cases = {
             "missing split column": (splits.drop(columns="split"), "missing columns"),
             "duplicate case_id": (splits.iloc[[0, 0]], "repeats case_id"),
             "non-integer split": (splits.assign(split=0.5), "non-integer"),
             "empty split": (splits.assign(split=None), "non-integer"),
-            "negative split": (splits.assign(split=-1), "outside 0-4"),
-            "split too large": (splits.assign(split=NUM_FOLDS), "outside 0-4"),
+            "negative split": (splits.assign(split=-1), out_of_range),
+            "split too large": (splits.assign(split=NUM_FOLDS), out_of_range),
         }
         for name, (frame, message) in cases.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
