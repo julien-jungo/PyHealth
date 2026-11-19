@@ -1,10 +1,12 @@
 # TCGA multimodal survival cohort (Song et al., ML4H 2025).
 # Every file below is written by TCGAMultimodalDataset.prepare_metadata() from
-# clinical.csv, folds.csv, and embeddings/<modality>/<case_id>/<file_id>.npy.
+# clinical.csv, split_cases.csv, and
+# embeddings/<modality>/<case_id>/<file_id>.npy.
 # Every table keys patients by case_id, mapped to PyHealth's patient_id.
 # A column that is not listed under `attributes` is dropped by BaseDataset, so
 # the clinical table lists every column of the authors' clinical.csv (checked
-# against data/clinical.csv of multimodal-cancer-modeling), plus the fold.
+# against data/clinical.csv of multimodal-cancer-modeling), plus the fold (the
+# split column of split_cases.csv).
 
 version: "1.0"
 tables:

@@ -11,7 +11,7 @@ temporary directory, with 2-4 dimensional embeddings; each covers one edge case:
     P1  dead, all modalities, two histology slides (aggregation)
     P2  alive, all modalities, zero follow-up days (min_duration)
     P3  alive, no histology embedding (missing modality)
-    P4  dead, all modalities, age 85, not in the fold file
+    P4  dead, all modalities, age 85, not in the split file
     P5  vital status "Not Reported" (invalid label)
 
 The task tests build Patient objects by hand, so they need no dataset build
@@ -36,6 +36,8 @@ from pyhealth.datasets import SubjectSplit, TCGAMultimodalDataset
 from pyhealth.tasks import MultimodalSurvivalPrediction
 
 P1, P2, P3, P4, P5 = (f"TCGA-AA-000{i}" for i in range(1, 6))
+OTHER_COHORT_CASE = "TCGA-ZZ-0001"
+LOGGER_NAME = "pyhealth.datasets.tcga_survival"
 EMBEDDING_FILES = {
     "expr": {
         P1: {"rna-01A": [1.0, 2.0, 3.0, 4.0]},
@@ -53,7 +55,7 @@ EMBEDDING_FILES = {
 
 
 def write_synthetic_root(root: Path) -> None:
-    """Writes clinical.csv, folds.csv, and .npy embeddings into root."""
+    """Writes clinical.csv, split_cases.csv, and .npy embeddings into root."""
     pd.DataFrame(
         {
             "case_id": [P1, P2, P3, P4, P5],
@@ -67,9 +69,16 @@ def write_synthetic_root(root: Path) -> None:
             "days_to_last_follow_up": [340.0, 0.0, 2100.0, 730.5, 50.0],
         }
     ).to_csv(root / "clinical.csv", index=False)
-    pd.DataFrame({"case_id": [P1, P2, P3, P5], "fold": [0, 1, 0, 1]}).to_csv(
-        root / "folds.csv", index=False
-    )
+    # Same columns as the authors' file; it also lists cases of other cohorts.
+    pd.DataFrame(
+        {
+            "case_id": [P1, P2, P3, P5, OTHER_COHORT_CASE],
+            "split": [0, 1, 0, 1, 2],
+            "split_order": [0, 0, 1, 1, 0],
+            "dead": [True, False, False, False, True],
+            "days_to_death_or_censor": [340.0, 0.0, 2100.0, 50.0, 10.0],
+        }
+    ).to_csv(root / "split_cases.csv", index=False)
     for modality, patients in EMBEDDING_FILES.items():
         for pid, files in patients.items():
             folder = root / "embeddings" / modality / pid
@@ -136,10 +145,10 @@ class TestTCGAMultimodal(unittest.TestCase):
         self.assertEqual(folds, {P1: 0, P2: 1, P3: 0, P5: 1})  # P4 has no fold
 
     def test_no_folds_raises(self) -> None:
-        # Same path as a root without folds.csv: no patient has a fold.
+        # Same path as a root without split_cases.csv: no patient has a fold.
         with (
             mock.patch.object(self.dataset, "_clinical_values", return_value={}),
-            self.assertRaisesRegex(ValueError, "folds.csv"),
+            self.assertRaisesRegex(ValueError, "split_cases.csv"),
         ):
             self.dataset.get_fold_assignments()
 
@@ -177,6 +186,45 @@ class TestTCGAMultimodal(unittest.TestCase):
                 frame.to_csv(Path(tmp) / "clinical.csv", index=False)
                 with self.assertRaises(ValueError):
                     TCGAMultimodalDataset.prepare_metadata(tmp)
+
+    def test_missing_split_file_warns_and_leaves_folds_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            shutil.copy(self.root / "clinical.csv", tmp)
+            with self.assertLogs(LOGGER_NAME, logging.WARNING) as logs:
+                TCGAMultimodalDataset.prepare_metadata(tmp, tables=[])
+            self.assertIn("split_cases.csv", logs.output[0])
+            clinical = pd.read_csv(Path(tmp) / "tcga_multimodal_clinical-pyhealth.csv")
+            self.assertTrue(clinical["fold"].isna().all())
+
+    def test_unknown_split_cases_logged_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("clinical.csv", "split_cases.csv"):
+                shutil.copy(self.root / name, tmp)
+            with self.assertLogs(LOGGER_NAME, logging.INFO) as logs:
+                TCGAMultimodalDataset.prepare_metadata(tmp, tables=[])
+            ignored = [line for line in logs.output if "Ignoring" in line]
+            self.assertEqual(len(ignored), 1)
+            self.assertIn("1 case_id(s)", ignored[0])
+            clinical = pd.read_csv(Path(tmp) / "tcga_multimodal_clinical-pyhealth.csv")
+            self.assertNotIn(OTHER_COHORT_CASE, set(clinical["case_id"]))
+            self.assertNotIn("split_order", clinical.columns)  # extra columns dropped
+
+    def test_malformed_split_file_raises(self) -> None:
+        splits = pd.read_csv(self.root / "split_cases.csv")
+        cases = {
+            "missing split column": (splits.drop(columns="split"), "missing columns"),
+            "duplicate case_id": (splits.iloc[[0, 0]], "repeats case_id"),
+            "non-integer split": (splits.assign(split=0.5), "non-integer"),
+            "empty split": (splits.assign(split=None), "non-integer"),
+        }
+        for name, (frame, message) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                shutil.copy(self.root / "clinical.csv", tmp)
+                frame.to_csv(Path(tmp) / "split_cases.csv", index=False)
+                with self.assertRaisesRegex(ValueError, message):
+                    TCGAMultimodalDataset.prepare_metadata(tmp, tables=[])
+                output = Path(tmp) / "tcga_multimodal_clinical-pyhealth.csv"
+                self.assertFalse(output.exists())
 
     def test_unknown_table_raises(self) -> None:
         with self.assertRaises(ValueError):

@@ -42,6 +42,9 @@ REQUIRED_CLINICAL_COLUMNS: tuple = (
     "days_to_last_follow_up",
 )
 _CLINICAL_CSV = "tcga_multimodal_clinical-pyhealth.csv"
+_SPLIT_CSV = "split_cases.csv"
+_SPLIT_COLUMN = "split"
+_FOLD_ATTRIBUTE = "fold"
 _INDEX_COLUMNS: list[str] = ["case_id", "file_id", "embedding_path"]
 _MISSING_VALUES = ("", "nan", "None", "<NA>")
 
@@ -59,14 +62,18 @@ class TCGAMultimodalDataset(BaseDataset):
 
         root/
             clinical.csv          # authors' data/clinical.csv (required)
-            folds.csv             # case_id, fold (optional)
+            split_cases.csv       # authors' results/split_cases.csv (optional)
             embeddings/
                 expr/<case_id>/<file_id>.npy    # gene expression
                 hist/<case_id>/<file_id>.npy    # histology slides
                 text/<case_id>/<file_id>.npy    # pathology reports
 
-    ``folds.csv`` holds the paper's folds: the authors'
-    ``results/split_cases.csv`` with its ``split`` column named ``fold``.
+    ``split_cases.csv`` holds the paper's folds. Copy the authors'
+    ``results/split_cases.csv`` as is: the loader reads its ``case_id`` and
+    ``split`` columns and ignores the others. Each patient's ``split`` value
+    becomes the ``fold`` attribute of its clinical event. The file may list
+    patients that are not in ``clinical.csv`` (the authors' file covers all
+    32 cohorts); they are ignored.
     Files use ``case_id`` as the patient ID column; PyHealth exposes it as
     ``patient_id``.
 
@@ -97,7 +104,7 @@ class TCGAMultimodalDataset(BaseDataset):
         FileNotFoundError: If ``clinical.csv`` or a requested
             ``embeddings/<modality>/`` folder is missing.
         ValueError: If ``tables`` names an unknown table, ``clinical.csv`` or
-            ``folds.csv`` is malformed, or a requested modality folder
+            ``split_cases.csv`` is malformed, or a requested modality folder
             holds no ``<case_id>/<file_id>.npy`` files.
 
     Examples:
@@ -165,16 +172,18 @@ class TCGAMultimodalDataset(BaseDataset):
     def _prepare_clinical(root: str) -> None:
         """Copies ``clinical.csv`` and adds the paper's fold as a ``fold`` column.
 
-        Every row and column of ``clinical.csv`` is kept. Patients missing
-        from ``folds.csv`` (or all patients, if that file is absent)
-        get an empty ``fold``.
+        Every row and column of ``clinical.csv`` is kept. The ``fold`` column
+        holds the ``split`` value from ``split_cases.csv``. Patients missing
+        from that file (or all patients, if it is absent) get an empty
+        ``fold``.
 
         Args:
             root: Dataset root directory.
 
         Raises:
             FileNotFoundError: If ``clinical.csv`` is missing.
-            ValueError: If required columns are missing or ``case_id`` repeats.
+            ValueError: If required columns are missing or ``case_id`` repeats,
+                in ``clinical.csv`` or ``split_cases.csv``.
         """
         output_path = os.path.join(root, _CLINICAL_CSV)
         if os.path.exists(output_path):
@@ -196,45 +205,64 @@ class TCGAMultimodalDataset(BaseDataset):
                 f"{duplicated.iloc[:3].tolist()}"
             )
 
-        clinical["fold"] = pd.array([pd.NA] * len(clinical), dtype="Int64")
-        split_path = os.path.join(root, "folds.csv")
+        clinical[_FOLD_ATTRIBUTE] = pd.array([pd.NA] * len(clinical), dtype="Int64")
+        split_path = os.path.join(root, _SPLIT_CSV)
         if os.path.exists(split_path):
-            folds = TCGAMultimodalDataset._read_folds(split_path)
-            clinical["fold"] = clinical["case_id"].map(folds).astype("Int64")
+            folds = TCGAMultimodalDataset._read_splits(split_path)
+            clinical[_FOLD_ATTRIBUTE] = clinical["case_id"].map(folds).astype("Int64")
             unknown = len(set(folds.index) - set(clinical["case_id"]))
             if unknown:
-                logger.warning(
-                    f"{unknown} case_id(s) in {split_path} are not in "
-                    f"{clinical_path}; their folds are ignored."
+                logger.info(
+                    f"Ignoring {unknown} case_id(s) in {split_path} that are not "
+                    f"in {clinical_path}."
                 )
         else:
             logger.warning(f"No {split_path}; every patient's fold is empty.")
+
         logger.info(
-            f"{int(clinical['fold'].isna().sum())} of {len(clinical)} patients "
-            "have no fold assignment."
+            f"{int(clinical[_FOLD_ATTRIBUTE].isna().sum())} of {len(clinical)} "
+            "patients have no fold assignment."
         )
         clinical.to_csv(output_path, index=False)
 
     @staticmethod
-    def _read_folds(split_path: str) -> pd.Series:
-        """Reads the paper's fold file into a ``case_id -> fold`` series.
+    def _read_splits(split_path: str) -> pd.Series:
+        """Reads the paper's split file into a ``case_id -> fold`` series.
+
+        Columns other than ``case_id`` and ``split`` are ignored.
 
         Args:
-            split_path: Path to ``folds.csv``.
+            split_path: Path to ``split_cases.csv``.
 
         Returns:
             Fold index (0-4 in the paper) for each ``case_id``.
 
         Raises:
-            ValueError: If columns are missing or a ``case_id`` repeats.
+            ValueError: If ``case_id`` or ``split`` is missing, a ``case_id``
+                repeats, or a ``split`` value is not an integer.
         """
         splits = pd.read_csv(split_path)
-        missing = [c for c in ("case_id", "fold") if c not in splits.columns]
+        required = ("case_id", _SPLIT_COLUMN)
+        missing = [c for c in required if c not in splits.columns]
         if missing:
             raise ValueError(f"{split_path} is missing columns: {missing}")
-        if splits["case_id"].duplicated().any():
-            raise ValueError(f"{split_path} assigns some case_id to several folds")
-        return splits.set_index("case_id")["fold"]
+
+        duplicated = splits["case_id"][splits["case_id"].duplicated()]
+        if not duplicated.empty:
+            raise ValueError(
+                f"{split_path} repeats case_id values, e.g. "
+                f"{duplicated.iloc[:3].tolist()}"
+            )
+
+        values = pd.to_numeric(splits[_SPLIT_COLUMN], errors="coerce")
+        invalid = splits[_SPLIT_COLUMN][values.isna() | (values % 1 != 0)]
+        if not invalid.empty:
+            raise ValueError(
+                f"{split_path} has non-integer {_SPLIT_COLUMN} values, e.g. "
+                f"{invalid.iloc[:3].tolist()}"
+            )
+
+        return values.set_axis(splits["case_id"]).rename(_FOLD_ATTRIBUTE)
 
     @staticmethod
     def _prepare_embedding_index(root: str, modality: str) -> None:
@@ -302,11 +330,11 @@ class TCGAMultimodalDataset(BaseDataset):
         """
         folds = {
             patient_id: int(float(fold))
-            for patient_id, fold in self._clinical_values("fold").items()
+            for patient_id, fold in self._clinical_values(_FOLD_ATTRIBUTE).items()
         }
         if not folds:
             raise ValueError(
-                f"No patient has a fold. Put folds.csv (case_id, fold) in "
+                f"No patient has a fold. Put {_SPLIT_CSV} (case_id, split) in "
                 f"{self.root}, delete {_CLINICAL_CSV} there, and reload."
             )
         return folds

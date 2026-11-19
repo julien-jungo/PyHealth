@@ -10,9 +10,9 @@ ablations.
 
 - **Data:** `--root` in the TCGAMultimodalDataset layout, or by default 300
   synthetic patients in 3 cohorts (`write_synthetic_data`, temp dir).
-- **Folds:** the paper's 5 published CV folds from `folds.csv`; fold `k` is
-  the test set, all other patients train. There is no validation set, as in
-  the paper.
+- **Folds:** the paper's 5 published CV folds, the `split` column of the
+  authors' `results/split_cases.csv`; fold `k` is the test set, all other
+  patients train. There is no validation set, as in the paper.
 - **Features:** expr/hist/text z-scored and PCA-reduced (EmbeddingPCAProcessor)
   to 256 components each, the paper's reported setting; 8 on synthetic data
   (32-dim embeddings). demo and canc are one-hot (multi_hot), unscaled.

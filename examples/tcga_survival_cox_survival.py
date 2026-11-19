@@ -10,7 +10,7 @@ Description: Reproduces the paper's per-modality Cox models on
     standardized, PCA-reduced foundation-model embeddings, combined by
     two-stage late fusion, and ablates the fusion and the risk head.
 
-Pipeline (per cross-validation fold, the paper's 5 folds from ``folds.csv``):
+Pipeline (per cross-validation fold, the paper's 5 folds from ``split_cases.csv``):
     TCGAMultimodalDataset -> MultimodalSurvivalPrediction
     -> set_task(split=FoldSplit) (processors fitted on the training fold only)
     -> one CoxSurvivalModel per modality (stage 1)
@@ -311,9 +311,9 @@ def write_synthetic_data(root: str, n_patients: int = 300, seed: int = 0) -> Non
     """Writes a synthetic dataset with a known survival signal to ``root``.
 
     Uses the layout of :class:`~pyhealth.datasets.TCGAMultimodalDataset`,
-    including ``folds.csv`` (``case_id``, ``fold``). Each embedding modality
-    hides its own latent signal in a few high-variance directions, and the log
-    hazard sums those signals with a cohort and an age effect. Survival and
+    including ``split_cases.csv`` (``case_id``, ``split``). Each embedding
+    modality hides its own latent signal in a few high-variance directions, and
+    the log hazard sums those signals with a cohort and an age effect. Survival and
     censoring times are exponential. Every modality should therefore beat
     C-index 0.5, and fusing them should beat each one alone.
 
@@ -367,8 +367,8 @@ def write_synthetic_data(root: str, n_patients: int = 300, seed: int = 0) -> Non
             "days_to_last_follow_up": np.round(np.minimum(death, follow_up)),
         }
     ).to_csv(root_path / "clinical.csv", index=False)
-    pd.DataFrame({"case_id": case_ids, "fold": _assign_folds(cohort, rng)}).to_csv(
-        root_path / "folds.csv", index=False
+    pd.DataFrame({"case_id": case_ids, "split": _assign_folds(cohort, rng)}).to_csv(
+        root_path / "split_cases.csv", index=False
     )
 
 
@@ -673,7 +673,7 @@ def run(
     """Loads the dataset and runs every fold.
 
     Args:
-        root: Dataset directory in the loader layout, with ``folds.csv``.
+        root: Dataset directory in the loader layout, with ``split_cases.csv``.
         cache_dir: PyHealth cache directory; None for PyHealth's default.
         pca_components: PCA components per embedding modality.
         num_workers: Worker processes for the dataset and task.
@@ -692,7 +692,7 @@ def run(
     unassigned = sorted(set(dataset.unique_patient_ids) - set(folds))
     if unassigned:
         raise ValueError(
-            f"{len(unassigned)} patient(s) have no fold in folds.csv, e.g. "
+            f"{len(unassigned)} patient(s) have no split in split_cases.csv, e.g. "
             f"{unassigned[:3]}; they would train in every fold"
         )
 
@@ -707,7 +707,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         help="dataset directory in the TCGAMultimodalDataset layout, with "
-        "folds.csv (case_id, fold); default: synthetic data in a temp dir",
+        "the authors' split_cases.csv (case_id, split); default: synthetic data "
+        "in a temp dir",
     )
     parser.add_argument("--cache-dir", help="PyHealth cache directory")
     parser.add_argument(
