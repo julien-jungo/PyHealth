@@ -32,12 +32,17 @@ import pandas as pd
 import polars as pl
 
 from pyhealth.data import Patient
-from pyhealth.datasets import TCGAMultimodalDataset
+from pyhealth.datasets import SubjectSplit, TCGAMultimodalDataset
 from pyhealth.tasks import MultimodalSurvivalPrediction
 
 P1, P2, P3, P4, P5 = (f"TCGA-AA-000{i}" for i in range(1, 6))
 EMBEDDING_FILES = {
-    "expr": {pid: {"rna-01A": [1.0, 2.0, 3.0, 4.0]} for pid in (P1, P2, P3, P4)},
+    "expr": {
+        P1: {"rna-01A": [1.0, 2.0, 3.0, 4.0]},
+        P2: {"rna-01A": [3.0, 2.0, 1.0, 0.0]},
+        P3: {"rna-01A": [2.0, 0.0, 2.0, 0.0]},
+        P4: {"rna-01A": [10.0, 10.0, 10.0, 10.0]},
+    },
     "hist": {
         P1: {"DX1": [0.0, 2.0, 4.0], "DX2": [2.0, 4.0, 6.0]},
         P2: {"DX1": [1.0, 1.0, 1.0]},
@@ -207,6 +212,44 @@ class TestTCGAMultimodal(unittest.TestCase):
                     "tcga_multimodal_expr-pyhealth.csv",
                 ],
             )
+
+    # End to end: dataset -> task -> processors fitted on train -> splits
+
+    def test_set_task_with_split_fits_on_train_only(self) -> None:
+        # P3 has no hist, so the task drops it and val is empty. P2 is the test
+        # part and has tokens not seen in train: age:(60, 80], race:asian and
+        # TCGA-LUAD.
+        task = MultimodalSurvivalPrediction(
+            expr_components=None, hist_components=1, text_components=None
+        )
+        split = SubjectSplit(([P1, P4], [P3], [P2]))
+
+        train, val, test = self.dataset.set_task(task, split=split, num_workers=1)
+
+        self.assertEqual(sorted(s["patient_id"] for s in train), [P1, P4])
+        self.assertEqual(len(val), 0)
+        (sample,) = test
+        self.assertEqual(sample["patient_id"], P2)
+
+        shapes = {"expr": (4,), "hist": (1,), "text": (2,), "demo": (7,)}
+        shapes |= {"canc": (1,), "duration": (1,), "event": (1,)}
+        for part in (train, test):
+            for row in part:
+                self.assertEqual({k: row[k].shape for k in shapes}, shapes)
+
+        # Train-only z-score of P2 [3, 2, 1, 0]: train mean [5.5, 6, 6.5, 7],
+        # std [4.5, 4, 3.5, 3]. A fit that saw P2 would give other values.
+        np.testing.assert_allclose(
+            sample["expr"], [-2.5 / 4.5, -1.0, -5.5 / 3.5, -7.0 / 3.0], rtol=1e-6
+        )
+
+        # Unseen tokens set no bit; the seen ones still do.
+        vocab = train.input_processors["demo"].label_vocab
+        expected = np.zeros(len(vocab), dtype=np.float32)
+        for token in ("sex:male", "ethnicity:not hispanic or latino"):
+            expected[vocab[token]] = 1.0
+        np.testing.assert_array_equal(sample["demo"], expected)
+        np.testing.assert_array_equal(sample["canc"], [0.0])
 
 
 def make_patient(
@@ -396,10 +439,6 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
         task = MultimodalSurvivalPrediction(modalities=("text", "demo"))
         json.dumps(vars(task))  # set_task builds its cache key this way
         self.assertEqual(task.modalities, ["text", "demo"])
-
-    @unittest.skip("needs EmbeddingPCAProcessor.fit/process (still a stub)")
-    def test_set_task_with_split_fits_on_train_only(self) -> None:
-        pass
 
 
 if __name__ == "__main__":
