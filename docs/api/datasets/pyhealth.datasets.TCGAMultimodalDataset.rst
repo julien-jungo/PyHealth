@@ -10,8 +10,10 @@ Pan-cancer cohort from The Cancer Genome Atlas (TCGA) used by Song et al.,
 across 32 cancer types. Each patient has a clinical record (demographics, cancer
 type, survival outcome, and the paper's cross-validation fold) and precomputed
 foundation-model embeddings of gene expression (BulkRNABert), whole-slide
-histology (UNI2-h), and pathology reports (BioMistral). The clinical table and
-fold file are released in the `authors' repository
+histology (UNI2-h), and pathology reports (BioMistral), loaded as the ``expr``,
+``hist``, and ``text`` tables. The clinical table and fold file (loaded as
+``folds.csv`` with columns ``case_id`` and ``fold``) are released in the
+`authors' repository
 <https://github.com/StevenSong/multimodal-cancer-modeling>`_, whose code also
 generates the embeddings; the raw data come from the
 `GDC portal <https://portal.gdc.cancer.gov/>`_.

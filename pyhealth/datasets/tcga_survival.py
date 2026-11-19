@@ -23,11 +23,13 @@ import pandas as pd
 import polars as pl
 
 from ..tasks import MultimodalSurvivalPrediction
+from ..tasks.survival import EMBEDDING_MODALITIES
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_TABLES: tuple = ("expression", "histology", "report")
+# Table, folder, and event type names equal the task's sample fields.
+EMBEDDING_TABLES: tuple = EMBEDDING_MODALITIES
 REQUIRED_CLINICAL_COLUMNS: tuple = (
     "case_id",
     "project",
@@ -40,7 +42,7 @@ REQUIRED_CLINICAL_COLUMNS: tuple = (
     "days_to_last_follow_up",
 )
 _CLINICAL_CSV = "tcga_multimodal_clinical-pyhealth.csv"
-_INDEX_COLUMNS: list[str] = ["patient_id", "file_id", "embedding_path"]
+_INDEX_COLUMNS: list[str] = ["case_id", "file_id", "embedding_path"]
 _MISSING_VALUES = ("", "nan", "None", "<NA>")
 
 
@@ -57,11 +59,16 @@ class TCGAMultimodalDataset(BaseDataset):
 
         root/
             clinical.csv          # authors' data/clinical.csv (required)
-            split_cases.csv       # authors' results/split_cases.csv (optional)
+            folds.csv             # case_id, fold (optional)
             embeddings/
-                expression/<patient_id>/<file_id>.npy
-                histology/<patient_id>/<file_id>.npy
-                report/<patient_id>/<file_id>.npy
+                expr/<case_id>/<file_id>.npy    # gene expression
+                hist/<case_id>/<file_id>.npy    # histology slides
+                text/<case_id>/<file_id>.npy    # pathology reports
+
+    ``folds.csv`` holds the paper's folds: the authors'
+    ``results/split_cases.csv`` with its ``split`` column named ``fold``.
+    Files use ``case_id`` as the patient ID column; PyHealth exposes it as
+    ``patient_id``.
 
     A patient may have several ``.npy`` files per modality (for example, two
     slides). Each file becomes its own event, so no sample is dropped or
@@ -74,8 +81,8 @@ class TCGAMultimodalDataset(BaseDataset):
 
     Args:
         root: Directory containing ``clinical.csv`` and ``embeddings/``.
-        tables: Embedding tables to load, any of ``"expression"``,
-            ``"histology"``, and ``"report"``. Defaults to all three; pass
+        tables: Embedding tables to load, any of ``"expr"``, ``"hist"``,
+            and ``"text"``. Defaults to all three; pass
             ``[]`` for clinical data only. The ``"clinical"`` table is always
             loaded because it holds the labels. Each requested table must
             have at least one ``.npy`` file.
@@ -90,15 +97,15 @@ class TCGAMultimodalDataset(BaseDataset):
         FileNotFoundError: If ``clinical.csv`` or a requested
             ``embeddings/<modality>/`` folder is missing.
         ValueError: If ``tables`` names an unknown table, ``clinical.csv`` or
-            ``split_cases.csv`` is malformed, or a requested modality folder
-            holds no ``<patient_id>/<file_id>.npy`` files.
+            ``folds.csv`` is malformed, or a requested modality folder
+            holds no ``<case_id>/<file_id>.npy`` files.
 
     Examples:
         >>> from pyhealth.datasets import TCGAMultimodalDataset
         >>> dataset = TCGAMultimodalDataset(root="/path/to/tcga_multimodal")
         >>> dataset.stats()
         >>> patient = dataset.get_patient("TCGA-OR-A5J1")
-        >>> slides = patient.get_events(event_type="histology")
+        >>> slides = patient.get_events(event_type="hist")
         >>> folds = dataset.get_fold_assignments()  # {"TCGA-OR-A5J1": 2, ...}
         >>> samples = dataset.set_task()  # MultimodalSurvivalPrediction
     """
@@ -159,7 +166,7 @@ class TCGAMultimodalDataset(BaseDataset):
         """Copies ``clinical.csv`` and adds the paper's fold as a ``fold`` column.
 
         Every row and column of ``clinical.csv`` is kept. Patients missing
-        from ``split_cases.csv`` (or all patients, if that file is absent)
+        from ``folds.csv`` (or all patients, if that file is absent)
         get an empty ``fold``.
 
         Args:
@@ -190,7 +197,7 @@ class TCGAMultimodalDataset(BaseDataset):
             )
 
         clinical["fold"] = pd.array([pd.NA] * len(clinical), dtype="Int64")
-        split_path = os.path.join(root, "split_cases.csv")
+        split_path = os.path.join(root, "folds.csv")
         if os.path.exists(split_path):
             folds = TCGAMultimodalDataset._read_folds(split_path)
             clinical["fold"] = clinical["case_id"].map(folds).astype("Int64")
@@ -213,7 +220,7 @@ class TCGAMultimodalDataset(BaseDataset):
         """Reads the paper's fold file into a ``case_id -> fold`` series.
 
         Args:
-            split_path: Path to the authors' ``split_cases.csv``.
+            split_path: Path to ``folds.csv``.
 
         Returns:
             Fold index (0-4 in the paper) for each ``case_id``.
@@ -222,19 +229,19 @@ class TCGAMultimodalDataset(BaseDataset):
             ValueError: If columns are missing or a ``case_id`` repeats.
         """
         splits = pd.read_csv(split_path)
-        missing = [c for c in ("case_id", "split") if c not in splits.columns]
+        missing = [c for c in ("case_id", "fold") if c not in splits.columns]
         if missing:
             raise ValueError(f"{split_path} is missing columns: {missing}")
         if splits["case_id"].duplicated().any():
             raise ValueError(f"{split_path} assigns some case_id to several folds")
-        return splits.set_index("case_id")["split"]
+        return splits.set_index("case_id")["fold"]
 
     @staticmethod
     def _prepare_embedding_index(root: str, modality: str) -> None:
         """Writes one row per ``.npy`` file under ``embeddings/<modality>/``.
 
         Files must sit in a per-patient folder named with the 12-character
-        patient barcode. Files elsewhere are reported in a warning rather
+        case ID (patient barcode). Files elsewhere are reported in a warning rather
         than indexed. Nothing is written when an error is raised, so a fixed
         folder is picked up on the next run.
 
@@ -244,7 +251,7 @@ class TCGAMultimodalDataset(BaseDataset):
 
         Raises:
             FileNotFoundError: If the modality folder is missing.
-            ValueError: If the folder holds no ``<patient_id>/<file_id>.npy``.
+            ValueError: If the folder holds no ``<case_id>/<file_id>.npy``.
         """
         output_path = os.path.join(root, f"tcga_multimodal_{modality}-pyhealth.csv")
         if os.path.exists(output_path):
@@ -252,7 +259,7 @@ class TCGAMultimodalDataset(BaseDataset):
         modality_dir = Path(root) / "embeddings" / modality
         if not modality_dir.is_dir():
             raise FileNotFoundError(
-                f"Expected {modality} embeddings in {modality_dir}/<patient_id>/"
+                f"Expected {modality} embeddings in {modality_dir}/<case_id>/"
                 f"<file_id>.npy. To load without them, leave {modality!r} out "
                 "of `tables`."
             )
@@ -260,7 +267,7 @@ class TCGAMultimodalDataset(BaseDataset):
         if stray:
             logger.warning(
                 f"Ignoring {len(stray)} file(s) directly inside {modality_dir}; "
-                f"expected <patient_id>/<file_id>.npy, e.g. {stray[:3]}"
+                f"expected <case_id>/<file_id>.npy, e.g. {stray[:3]}"
             )
         rows = [
             (patient_dir.name, npy_path.stem, str(npy_path.resolve()))
@@ -268,11 +275,11 @@ class TCGAMultimodalDataset(BaseDataset):
             for npy_path in sorted(patient_dir.glob("*.npy"))
         ]
         if not rows:
-            raise ValueError(f"No <patient_id>/<file_id>.npy files in {modality_dir}.")
+            raise ValueError(f"No <case_id>/<file_id>.npy files in {modality_dir}.")
         index = pd.DataFrame(rows, columns=_INDEX_COLUMNS)
         logger.info(
             f"Indexed {len(index)} {modality} file(s) for "
-            f"{index['patient_id'].nunique()} patient(s)."
+            f"{index['case_id'].nunique()} patient(s)."
         )
         index.to_csv(output_path, index=False)
 
@@ -299,7 +306,7 @@ class TCGAMultimodalDataset(BaseDataset):
         }
         if not folds:
             raise ValueError(
-                f"No patient has a fold. Put the authors' split_cases.csv in "
+                f"No patient has a fold. Put folds.csv (case_id, fold) in "
                 f"{self.root}, delete {_CLINICAL_CSV} there, and reload."
             )
         return folds

@@ -26,8 +26,6 @@ AGE_BINS = (0, 20, 40, 60, 80, 100)
 EMBEDDING_MODALITIES = ("expr", "hist", "text")
 CLINICAL_MODALITIES = ("demo", "canc")
 ALL_MODALITIES = EMBEDDING_MODALITIES + CLINICAL_MODALITIES
-# Sample field -> event type of TCGAMultimodalDataset (its folder name).
-EVENT_TYPES = {"expr": "expression", "hist": "histology", "text": "report"}
 AGGREGATIONS = ("mean", "first")
 
 
@@ -38,8 +36,8 @@ class MultimodalSurvivalPrediction(BaseTask):
     sample per patient with the requested modalities:
 
     - ``expr``, ``hist``, ``text``: one embedding per patient (RNA-seq,
-      histology, pathology report), read from the dataset's ``expression``,
-      ``histology`` and ``report`` events. A patient with several files for a
+      histology, pathology report), read from the dataset's events of the
+      same name. A patient with several files for a
       modality (e.g. two slides) gets them combined by ``aggregation``. The
       vectors are standardized and PCA-reduced by
       :class:`~pyhealth.processors.EmbeddingPCAProcessor`, fitted on the
@@ -76,7 +74,7 @@ class MultimodalSurvivalPrediction(BaseTask):
     Examples:
         >>> from pyhealth.datasets import TCGAMultimodalDataset
         >>> from pyhealth.tasks import MultimodalSurvivalPrediction
-        >>> dataset = TCGAMultimodalDataset(root="/path/to/data", tables=["report"])
+        >>> dataset = TCGAMultimodalDataset(root="/path/to/data", tables=["text"])
         >>> task = MultimodalSurvivalPrediction(modalities=["text", "demo", "canc"])
         >>> task.input_schema["text"]
         ('embedding_pca', {'n_components': 256})
@@ -150,9 +148,9 @@ class MultimodalSurvivalPrediction(BaseTask):
             elif modality == "canc":
                 sample[modality] = [_category(getattr(record, "project", None))]
             else:
-                vector = self._embedding(patient, EVENT_TYPES[modality])
+                vector = self._embedding(patient, modality)
                 if vector is None:
-                    return _skip(patient, f"no {EVENT_TYPES[modality]} embedding")
+                    return _skip(patient, f"no {modality} embedding")
                 sample[modality] = vector
         return [sample]
 
@@ -161,7 +159,7 @@ class MultimodalSurvivalPrediction(BaseTask):
 
         Args:
             patient: The patient.
-            event_type: ``"expression"``, ``"histology"`` or ``"report"``.
+            event_type: ``"expr"``, ``"hist"`` or ``"text"``.
 
         Returns:
             One embedding as a list of floats, or None if the patient has no

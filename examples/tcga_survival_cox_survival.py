@@ -47,8 +47,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from pyhealth.datasets import Split
 from pyhealth.tasks.survival import EMBEDDING_MODALITIES
@@ -72,6 +70,7 @@ SYNTHETIC_LOG_HAZARD_PER_SIGNAL = 0.8
 SYNTHETIC_BASELINE_SURVIVAL_DAYS = 1000.0
 SYNTHETIC_CENSORING_DAYS = 1000.0
 SYNTHETIC_MAX_SOURCES = 2
+SYNTHETIC_SOURCE_NOISE = 0.1
 
 
 def ridge_weight_decay(alpha: float, n_events: int) -> float:
@@ -114,8 +113,8 @@ class FoldSplit(Split):
         [array([0]), array([1])]
     """
 
-    # TODO: implement like the HoldoutSplit example in splitter.py; read
-    # the test patients of a fold from folds.csv (case_id, fold).
+    # TODO: implement like the HoldoutSplit example in splitter.py; take
+    # the test patients of a fold from dataset.get_fold_assignments().
     def __init__(self, test_patients: Sequence[str]) -> None:
         raise NotImplementedError
 
@@ -148,27 +147,37 @@ def _embed(signal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
 
 
 def _write_embeddings(
-    path: Path, case_ids: list[str], embeddings: np.ndarray, n_sources: np.ndarray
+    folder: Path,
+    case_ids: list[str],
+    embeddings: np.ndarray,
+    n_sources: np.ndarray,
+    rng: np.random.Generator,
 ) -> None:
-    """Writes one modality's table with a ``list<float32>`` embedding column.
+    """Writes one modality as ``<case_id>/<file_id>.npy`` files under ``folder``.
+
+    A case with several sources (e.g. slides) gets one file per source. The
+    files scatter around the case's embedding and average back to it, so the
+    task's ``mean`` aggregation recovers the embedding.
 
     Args:
-        path: Output parquet file; overwritten if it exists.
+        folder: Modality folder, e.g. ``root/embeddings/expr``.
         case_ids: TCGA case ID of each row.
         embeddings: One embedding per case, shape ``[n_patients, dim]``.
-        n_sources: Number of source files averaged into each embedding.
+        n_sources: Number of source files to write for each case.
+        rng: Random generator for the scatter between sources.
 
     Returns:
-        None. The table is written to ``path``.
+        None. Existing files of the same name are overwritten.
     """
-    table = pa.table(
-        {
-            "case_id": case_ids,
-            "embedding": pa.array(list(embeddings), type=pa.list_(pa.float32())),
-            "n_sources": n_sources,
-        }
-    )
-    pq.write_table(table, path)
+    for case_id, embedding, n in zip(case_ids, embeddings, n_sources):
+        case_dir = folder / case_id
+        case_dir.mkdir(parents=True, exist_ok=True)
+
+        scatter = rng.normal(scale=SYNTHETIC_SOURCE_NOISE, size=(n, len(embedding)))
+        scatter -= scatter.mean(axis=0)
+
+        for source, vector in enumerate(embedding + scatter):
+            np.save(case_dir / f"source-{source}.npy", vector.astype(np.float32))
 
 
 def _assign_folds(cohort: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -193,10 +202,10 @@ def _assign_folds(cohort: np.ndarray, rng: np.random.Generator) -> np.ndarray:
 def write_synthetic_data(root: str, n_patients: int = 300, seed: int = 0) -> None:
     """Writes a synthetic dataset with a known survival signal to ``root``.
 
-    Uses the layout of :class:`~pyhealth.datasets.TCGAMultimodalDataset`, plus
-    ``folds.csv`` (``case_id``, ``fold``). Each embedding modality hides its
-    own latent signal in a few high-variance directions, and the log hazard
-    sums those signals with a cohort and an age effect. Survival and
+    Uses the layout of :class:`~pyhealth.datasets.TCGAMultimodalDataset`,
+    including ``folds.csv`` (``case_id``, ``fold``). Each embedding modality
+    hides its own latent signal in a few high-variance directions, and the log
+    hazard sums those signals with a cohort and an age effect. Survival and
     censoring times are exponential. Every modality should therefore beat
     C-index 0.5, and fusing them should beat each one alone.
 
@@ -213,7 +222,7 @@ def write_synthetic_data(root: str, n_patients: int = 300, seed: int = 0) -> Non
 
     rng = np.random.default_rng(seed)
     root_path = Path(root)
-    (root_path / "embeddings").mkdir(parents=True, exist_ok=True)
+    root_path.mkdir(parents=True, exist_ok=True)
     case_ids = [f"TCGA-SY-{i:04d}" for i in range(n_patients)]
 
     cohort = rng.integers(len(SYNTHETIC_COHORTS), size=n_patients)
@@ -227,10 +236,11 @@ def write_synthetic_data(root: str, n_patients: int = 300, seed: int = 0) -> Non
         signal = rng.normal(size=(n_patients, SYNTHETIC_SIGNAL_DIMS))
         log_hazard += SYNTHETIC_LOG_HAZARD_PER_SIGNAL * signal.sum(axis=1)
         _write_embeddings(
-            root_path / "embeddings" / f"{modality}.parquet",
+            root_path / "embeddings" / modality,
             case_ids,
             _embed(signal, rng),
             rng.integers(1, SYNTHETIC_MAX_SOURCES + 1, size=n_patients),
+            rng,
         )
 
     death = rng.exponential(SYNTHETIC_BASELINE_SURVIVAL_DAYS * np.exp(-log_hazard))

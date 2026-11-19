@@ -1,10 +1,10 @@
 # TCGA multimodal survival cohort (Song et al., ML4H 2025).
 # Every file below is written by TCGAMultimodalDataset.prepare_metadata() from
-# clinical.csv, split_cases.csv, and embeddings/<modality>/<patient>/<file>.npy.
+# clinical.csv, folds.csv, and embeddings/<modality>/<case_id>/<file_id>.npy.
+# Every table keys patients by case_id, mapped to PyHealth's patient_id.
 # A column that is not listed under `attributes` is dropped by BaseDataset, so
-# the clinical table lists every column of the authors' clinical.csv.
-
-#TODO ensure that the following columns are as expected
+# the clinical table lists every column of the authors' clinical.csv (checked
+# against data/clinical.csv of multimodal-cancer-modeling), plus the fold.
 
 version: "1.0"
 tables:
@@ -22,23 +22,23 @@ tables:
       - "days_to_death"
       - "days_to_last_follow_up"
       - "fold"
-  expression:
-    file_path: "tcga_multimodal_expression-pyhealth.csv"
-    patient_id: "patient_id"
+  expr:
+    file_path: "tcga_multimodal_expr-pyhealth.csv"
+    patient_id: "case_id"
     timestamp: null
     attributes:
       - "file_id"
       - "embedding_path"
-  histology:
-    file_path: "tcga_multimodal_histology-pyhealth.csv"
-    patient_id: "patient_id"
+  hist:
+    file_path: "tcga_multimodal_hist-pyhealth.csv"
+    patient_id: "case_id"
     timestamp: null
     attributes:
       - "file_id"
       - "embedding_path"
-  report:
-    file_path: "tcga_multimodal_report-pyhealth.csv"
-    patient_id: "patient_id"
+  text:
+    file_path: "tcga_multimodal_text-pyhealth.csv"
+    patient_id: "case_id"
     timestamp: null
     attributes:
       - "file_id"
