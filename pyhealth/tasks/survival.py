@@ -43,8 +43,10 @@ class MultimodalSurvivalPrediction(BaseTask):
       :class:`~pyhealth.processors.EmbeddingPCAProcessor`, fitted on the
       training part when ``set_task`` is given a ``split``.
     - ``demo``: tokens for sex, age bin (as in the paper: ``(0, 20]`` to
-      ``(80, 100]``), race and ethnicity, one-hot encoded by ``multi_hot``.
-    - ``canc``: the TCGA project as a single ``multi_hot`` token.
+      ``(80, 100]``), race and ethnicity, one-hot encoded by
+      :class:`~pyhealth.processors.MultiHotIgnoreUnknownProcessor`, which
+      gives tokens unseen in the training part no bit.
+    - ``canc``: the TCGA project as a single token, encoded the same way.
     - ``duration``: days to death, or to last follow-up when censored.
       Zero-day durations are kept, as in the paper.
     - ``event``: 1.0 if the patient died, else 0.0.
@@ -117,7 +119,7 @@ class MultimodalSurvivalPrediction(BaseTask):
             m: (
                 ("embedding_pca", {"n_components": components[m]})
                 if m in EMBEDDING_MODALITIES
-                else "multi_hot"
+                else "multi_hot_ignore_unknown"
             )
             for m in self.modalities
         }

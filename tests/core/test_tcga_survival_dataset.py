@@ -301,8 +301,8 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
                 "expr": ("embedding_pca", {"n_components": 256}),
                 "hist": ("embedding_pca", {"n_components": 256}),
                 "text": ("embedding_pca", {"n_components": 256}),
-                "demo": "multi_hot",
-                "canc": "multi_hot",
+                "demo": "multi_hot_ignore_unknown",
+                "canc": "multi_hot_ignore_unknown",
             },
         )
         task = MultimodalSurvivalPrediction(
@@ -310,7 +310,10 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
         )
         self.assertEqual(
             task.input_schema,
-            {"text": ("embedding_pca", {"n_components": None}), "canc": "multi_hot"},
+            {
+                "text": ("embedding_pca", {"n_components": None}),
+                "canc": "multi_hot_ignore_unknown",
+            },
         )
         self.assertEqual(task.output_schema, {"duration": "tensor", "event": "tensor"})
 
