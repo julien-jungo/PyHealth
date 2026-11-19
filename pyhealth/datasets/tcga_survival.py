@@ -14,7 +14,6 @@ Description: Loads the pan-cancer TCGA cohort used by the paper. Each patient
     and pathology reports.
 """
 
-
 import logging
 import os
 from collections.abc import Sequence
