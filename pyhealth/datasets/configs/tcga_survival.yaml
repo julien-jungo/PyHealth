@@ -1,9 +1,15 @@
-# TODO: verify that the list<float32> `embedding` column survives
-# BaseDataset loading and caching; fall back to a string column if not.
+# TCGA multimodal survival cohort (Song et al., ML4H 2025).
+# Every file below is written by TCGAMultimodalDataset.prepare_metadata() from
+# clinical.csv, split_cases.csv, and embeddings/<modality>/<patient>/<file>.npy.
+# A column that is not listed under `attributes` is dropped by BaseDataset, so
+# the clinical table lists every column of the authors' clinical.csv.
+
+#TODO ensure that the following columns are as expected
+
 version: "1.0"
 tables:
   clinical:
-    file_path: "clinical.csv"
+    file_path: "tcga_multimodal_clinical-pyhealth.csv"
     patient_id: "case_id"
     timestamp: null
     attributes:
@@ -15,24 +21,25 @@ tables:
       - "vital_status"
       - "days_to_death"
       - "days_to_last_follow_up"
-  expr:
-    file_path: "embeddings/expr.parquet"
-    patient_id: "case_id"
+      - "fold"
+  expression:
+    file_path: "tcga_multimodal_expression-pyhealth.csv"
+    patient_id: "patient_id"
     timestamp: null
     attributes:
-      - "embedding"
-      - "n_sources"
-  hist:
-    file_path: "embeddings/hist.parquet"
-    patient_id: "case_id"
+      - "file_id"
+      - "embedding_path"
+  histology:
+    file_path: "tcga_multimodal_histology-pyhealth.csv"
+    patient_id: "patient_id"
     timestamp: null
     attributes:
-      - "embedding"
-      - "n_sources"
-  text:
-    file_path: "embeddings/text.parquet"
-    patient_id: "case_id"
+      - "file_id"
+      - "embedding_path"
+  report:
+    file_path: "tcga_multimodal_report-pyhealth.csv"
+    patient_id: "patient_id"
     timestamp: null
     attributes:
-      - "embedding"
-      - "n_sources"
+      - "file_id"
+      - "embedding_path"
