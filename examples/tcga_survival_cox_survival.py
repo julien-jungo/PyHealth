@@ -68,6 +68,8 @@ from pyhealth.tasks import MultimodalSurvivalPrediction
 from pyhealth.tasks.survival import EMBEDDING_MODALITIES
 from pyhealth.trainer import Trainer
 
+logger = logging.getLogger(__name__)
+
 PAPER_RIDGE_ALPHA = 0.1
 # The paper's reported setting (results/analyze-results.ipynb, Table 1).
 PAPER_PCA_COMPONENTS = {"expr": 256, "hist": 256, "text": 256}
@@ -186,25 +188,35 @@ def ridge_weight_decay(alpha: float, n_events: int) -> float:
 class FoldSplit(Split):
     """Train/test split for one of the paper's published CV folds.
 
-    The fold's patients form the test part; every other patient trains, as
-    in the paper's ``run_experiment``. Take the test patients of fold ``k``
-    from :meth:`~pyhealth.datasets.TCGAMultimodalDataset.get_fold_assignments`.
+    The fold's patients form the test part; the patients of every other fold
+    train, as in the paper's ``run_experiment``. Patients without a fold are
+    in neither part. Take the folds from
+    :meth:`~pyhealth.datasets.TCGAMultimodalDataset.get_fold_assignments`.
 
     Args:
-        test_patients: Patient IDs of the fold.
+        folds: Patient ID to fold index.
+        fold: Fold whose patients form the test part.
 
     Raises:
-        ValueError: If ``test_patients`` is empty.
+        ValueError: If no patient is in ``fold``, or no patient is in
+            another fold.
 
     Examples:
-        >>> FoldSplit(test_patients=["p2"]).split_indices({"p1": [0], "p2": [1]})
+        >>> split = FoldSplit(folds={"p1": 0, "p2": 1}, fold=1)
+        >>> split.split_indices({"p1": [0], "p2": [1], "p3": [2]})
         [array([0]), array([1])]
     """
 
-    def __init__(self, test_patients: Sequence[str]) -> None:
-        if not test_patients:
-            raise ValueError("test_patients must not be empty")
-        self.test_patients = sorted(set(test_patients))
+    def __init__(self, folds: Mapping[str, int], fold: int) -> None:
+        self.train_patients = sorted(p for p, f in folds.items() if f != fold)
+        self.test_patients = sorted(p for p, f in folds.items() if f == fold)
+
+        if not self.train_patients or not self.test_patients:
+            raise ValueError(
+                f"Fold {fold} needs training and test patients; got "
+                f"{len(self.train_patients)} training and "
+                f"{len(self.test_patients)} test patients"
+            )
 
     def split_indices(
         self, patient_to_index: Mapping[str, Sequence[int]]
@@ -216,14 +228,18 @@ class FoldSplit(Split):
 
         Returns:
             Two sorted ``int64`` index arrays: training part, test part.
+            Samples of patients without a fold are in neither part.
 
         Raises:
             ValueError: If either part has no sample.
         """
-        test = set(self.test_patients)
+        train, test = set(self.train_patients), set(self.test_patients)
         parts: tuple[list[int], list[int]] = ([], [])
         for patient_id, indices in patient_to_index.items():
-            parts[patient_id in test].extend(indices)
+            if patient_id in train:
+                parts[0].extend(indices)
+            elif patient_id in test:
+                parts[1].extend(indices)
 
         if not parts[0] or not parts[1]:
             raise ValueError(
@@ -233,8 +249,12 @@ class FoldSplit(Split):
         return [np.array(sorted(part), dtype=np.int64) for part in parts]
 
     def to_dict(self) -> dict:
-        """Returns the fold's test patients, for the processed-cache key."""
-        return {"kind": "fold", "test_patients": self.test_patients}
+        """Returns both parts' patients, for the processed-cache key."""
+        return {
+            "kind": "fold",
+            "train_patients": self.train_patients,
+            "test_patients": self.test_patients,
+        }
 
 
 def _embed(signal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -605,7 +625,8 @@ def run_fold(
     only, through ``set_task(task, split=FoldSplit(...))``.
 
     Args:
-        dataset: Dataset whose patients all have a fold.
+        dataset: Dataset with a fold for at least one patient. Patients
+            without a fold are left out.
         fold: Fold whose patients form the test set.
         pca_components: PCA components per embedding modality.
 
@@ -616,8 +637,7 @@ def run_fold(
     task = MultimodalSurvivalPrediction(
         **{f"{m}_components": n for m, n in pca_components.items()}
     )
-    folds = dataset.get_fold_assignments()
-    split = FoldSplit([patient for patient, f in folds.items() if f == fold])
+    split = FoldSplit(dataset.get_fold_assignments(), fold)
     train, test = dataset.set_task(task, split=split)
     n_events = _n_events(train)
 
@@ -672,6 +692,9 @@ def run(
 ) -> list[FoldResult]:
     """Loads the dataset and runs every fold.
 
+    Patients without a fold in ``split_cases.csv`` are left out of every
+    fold, with one warning that gives their count.
+
     Args:
         root: Dataset directory in the loader layout, with ``split_cases.csv``.
         cache_dir: PyHealth cache directory; None for PyHealth's default.
@@ -682,18 +705,21 @@ def run(
         One result per fold, in fold order.
 
     Raises:
-        ValueError: If a patient has no fold.
+        ValueError: If no patient has a fold, or a fold has no training or
+            test sample.
     """
     dataset = TCGAMultimodalDataset(
         root=root, cache_dir=cache_dir, num_workers=num_workers
     )
 
     folds = dataset.get_fold_assignments()
-    unassigned = sorted(set(dataset.unique_patient_ids) - set(folds))
+    patients = set(dataset.unique_patient_ids)
+    unassigned = len(patients - set(folds))
     if unassigned:
-        raise ValueError(
-            f"{len(unassigned)} patient(s) have no split in split_cases.csv, e.g. "
-            f"{unassigned[:3]}; they would train in every fold"
+        logger.warning(
+            "Skipping %d of %d patients without a split in split_cases.csv",
+            unassigned,
+            len(patients),
         )
 
     return [

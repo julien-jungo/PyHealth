@@ -11,8 +11,10 @@ ablations.
 - **Data:** `--root` in the TCGAMultimodalDataset layout, or by default 300
   synthetic patients in 3 cohorts (`write_synthetic_data`, temp dir).
 - **Folds:** the paper's 5 published CV folds, the `split` column of the
-  authors' `results/split_cases.csv`; fold `k` is the test set, all other
-  patients train. There is no validation set, as in the paper.
+  authors' `results/split_cases.csv`; fold `k` is the test set, the other
+  folds train. There is no validation set, as in the paper. Patients without
+  a fold (79 of the 8061 in the authors' full `clinical.csv`) are left out,
+  with one warning that gives the count.
 - **Features:** expr/hist/text z-scored and PCA-reduced (EmbeddingPCAProcessor)
   to 256 components each, the paper's reported setting; 8 on synthetic data
   (32-dim embeddings). demo and canc are one-hot (multi_hot), unscaled.
