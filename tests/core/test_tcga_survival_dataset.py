@@ -33,6 +33,7 @@ import polars as pl
 
 from pyhealth.data import Patient
 from pyhealth.datasets import SubjectSplit, TCGAMultimodalDataset
+from pyhealth.datasets.tcga_survival import NUM_FOLDS
 from pyhealth.tasks import MultimodalSurvivalPrediction
 
 P1, P2, P3, P4, P5 = (f"TCGA-AA-000{i}" for i in range(1, 6))
@@ -216,6 +217,8 @@ class TestTCGAMultimodal(unittest.TestCase):
             "duplicate case_id": (splits.iloc[[0, 0]], "repeats case_id"),
             "non-integer split": (splits.assign(split=0.5), "non-integer"),
             "empty split": (splits.assign(split=None), "non-integer"),
+            "negative split": (splits.assign(split=-1), "outside 0-4"),
+            "split too large": (splits.assign(split=NUM_FOLDS), "outside 0-4"),
         }
         for name, (frame, message) in cases.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:

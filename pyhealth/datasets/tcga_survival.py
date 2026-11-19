@@ -41,6 +41,7 @@ REQUIRED_CLINICAL_COLUMNS: tuple = (
     "days_to_death",
     "days_to_last_follow_up",
 )
+NUM_FOLDS = 5
 _CLINICAL_CSV = "tcga_multimodal_clinical-pyhealth.csv"
 _SPLIT_CSV = "split_cases.csv"
 _SPLIT_COLUMN = "split"
@@ -73,9 +74,8 @@ class TCGAMultimodalDataset(BaseDataset):
     ``split`` columns and ignores the others. Each patient's ``split`` value
     becomes the ``fold`` attribute of its clinical event. The file may list
     patients that are not in ``clinical.csv`` (the authors' file covers all
-    32 cohorts); they are ignored.
-    Files use ``case_id`` as the patient ID column; PyHealth exposes it as
-    ``patient_id``.
+    32 cohorts); they are ignored. Files use ``case_id`` as the patient ID
+    column; PyHealth exposes it as ``patient_id``.
 
     A patient may have several ``.npy`` files per modality (for example, two
     slides). Each file becomes its own event, so no sample is dropped or
@@ -235,11 +235,12 @@ class TCGAMultimodalDataset(BaseDataset):
             split_path: Path to ``split_cases.csv``.
 
         Returns:
-            Fold index (0-4 in the paper) for each ``case_id``.
+            Fold index (0 to ``NUM_FOLDS - 1``) for each ``case_id``.
 
         Raises:
             ValueError: If ``case_id`` or ``split`` is missing, a ``case_id``
-                repeats, or a ``split`` value is not an integer.
+                repeats, or a ``split`` value is not an integer from 0 to
+                ``NUM_FOLDS - 1``.
         """
         splits = pd.read_csv(split_path)
         required = ("case_id", _SPLIT_COLUMN)
@@ -260,6 +261,13 @@ class TCGAMultimodalDataset(BaseDataset):
             raise ValueError(
                 f"{split_path} has non-integer {_SPLIT_COLUMN} values, e.g. "
                 f"{invalid.iloc[:3].tolist()}"
+            )
+
+        out_of_range = values[(values < 0) | (values >= NUM_FOLDS)]
+        if not out_of_range.empty:
+            raise ValueError(
+                f"{split_path} has {_SPLIT_COLUMN} values outside 0-"
+                f"{NUM_FOLDS - 1}, e.g. {out_of_range.iloc[:3].tolist()}"
             )
 
         return values.set_axis(splits["case_id"]).rename(_FOLD_ATTRIBUTE)
