@@ -36,6 +36,7 @@ from .segmentation_label_processors import (
     SegmentationMultiClassLabelProcessor,
 )
 from .multi_hot_processor import MultiHotProcessor
+from .multi_hot_ignore_unknown_processor import MultiHotIgnoreUnknownProcessor  # noqa: E402
 from .embedding_pca_processor import EmbeddingPCAProcessor  # noqa: E402
 from .nested_multihot_processor import NestedMultiHotProcessor
 from .nested_sequence_processor import (
@@ -109,6 +110,7 @@ __all__ = [
     "read_image_metadata",
     "LabelProcessor",
     "MultiHotProcessor",
+    "MultiHotIgnoreUnknownProcessor",
     "EmbeddingPCAProcessor",
     "SegmentationBinaryLabelProcessor",
     "SegmentationMultiClassLabelProcessor",

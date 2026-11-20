@@ -11,7 +11,7 @@ temporary directory, with 2-4 dimensional embeddings; each covers one edge case:
     P1  dead, all modalities, two histology slides (aggregation)
     P2  alive, all modalities, zero follow-up days (min_duration)
     P3  alive, no histology embedding (missing modality)
-    P4  dead, all modalities, age 85, not in the fold file
+    P4  dead, all modalities, age 85, not in the split file
     P5  vital status "Not Reported" (invalid label)
 
 The task tests build Patient objects by hand, so they need no dataset build
@@ -32,18 +32,26 @@ import pandas as pd
 import polars as pl
 
 from pyhealth.data import Patient
-from pyhealth.datasets import TCGAMultimodalDataset
+from pyhealth.datasets import SubjectSplit, TCGAMultimodalDataset
+from pyhealth.datasets.tcga_survival import NUM_FOLDS
 from pyhealth.tasks import MultimodalSurvivalPrediction
 
 P1, P2, P3, P4, P5 = (f"TCGA-AA-000{i}" for i in range(1, 6))
+OTHER_COHORT_CASE = "TCGA-ZZ-0001"
+LOGGER_NAME = "pyhealth.datasets.tcga_survival"
 EMBEDDING_FILES = {
-    "expression": {pid: {"rna-01A": [1.0, 2.0, 3.0, 4.0]} for pid in (P1, P2, P3, P4)},
-    "histology": {
+    "expr": {
+        P1: {"rna-01A": [1.0, 2.0, 3.0, 4.0]},
+        P2: {"rna-01A": [3.0, 2.0, 1.0, 0.0]},
+        P3: {"rna-01A": [2.0, 0.0, 2.0, 0.0]},
+        P4: {"rna-01A": [10.0, 10.0, 10.0, 10.0]},
+    },
+    "hist": {
         P1: {"DX1": [0.0, 2.0, 4.0], "DX2": [2.0, 4.0, 6.0]},
         P2: {"DX1": [1.0, 1.0, 1.0]},
         P4: {"DX1": [3.0, 3.0, 3.0]},
     },
-    "report": {pid: {"report": [0.5, -0.5]} for pid in (P1, P2, P3, P4)},
+    "text": {pid: {"report": [0.5, -0.5]} for pid in (P1, P2, P3, P4)},
 }
 
 
@@ -62,9 +70,16 @@ def write_synthetic_root(root: Path) -> None:
             "days_to_last_follow_up": [340.0, 0.0, 2100.0, 730.5, 50.0],
         }
     ).to_csv(root / "clinical.csv", index=False)
-    pd.DataFrame({"case_id": [P1, P2, P3, P5], "split": [0, 1, 0, 1]}).to_csv(
-        root / "split_cases.csv", index=False
-    )
+    # Same columns as the authors' file; it also lists cases of other cohorts.
+    pd.DataFrame(
+        {
+            "case_id": [P1, P2, P3, P5, OTHER_COHORT_CASE],
+            "split": [0, 1, 0, 1, 2],
+            "split_order": [0, 0, 1, 1, 0],
+            "dead": [True, False, False, False, True],
+            "days_to_death_or_censor": [340.0, 0.0, 2100.0, 50.0, 10.0],
+        }
+    ).to_csv(root / "split_cases.csv", index=False)
     for modality, patients in EMBEDDING_FILES.items():
         for pid, files in patients.items():
             folder = root / "embeddings" / modality / pid
@@ -100,18 +115,19 @@ class TestTCGAMultimodal(unittest.TestCase):
         self.assertEqual(sorted(self.dataset.unique_patient_ids), [P1, P2, P3, P4, P5])
 
     def test_prepare_metadata_writes_index_files(self) -> None:
-        for table in ("clinical", "expression", "histology", "report"):
+        for table in ("clinical", "expr", "hist", "text"):
             path = self.root / f"tcga_multimodal_{table}-pyhealth.csv"
             self.assertTrue(path.exists(), path)
-        index = pd.read_csv(self.root / "tcga_multimodal_histology-pyhealth.csv")
+        index = pd.read_csv(self.root / "tcga_multimodal_hist-pyhealth.csv")
+        self.assertEqual(list(index.columns), ["case_id", "file_id", "embedding_path"])
         self.assertEqual(len(index), 4)  # every slide file is indexed
 
     def test_events_per_table(self) -> None:
         p1, p3 = self.dataset.get_patient(P1), self.dataset.get_patient(P3)
         self.assertEqual(len(p1.get_events(event_type="clinical")), 1)
-        self.assertEqual(len(p1.get_events(event_type="histology")), 2)
-        self.assertEqual(len(p3.get_events(event_type="histology")), 0)
-        self.assertEqual(len(p3.get_events(event_type="expression")), 1)
+        self.assertEqual(len(p1.get_events(event_type="hist")), 2)
+        self.assertEqual(len(p3.get_events(event_type="hist")), 0)
+        self.assertEqual(len(p3.get_events(event_type="expr")), 1)
 
     def test_clinical_columns_preserved(self) -> None:
         record = self.dataset.get_patient(P1).get_events(event_type="clinical")[0]
@@ -121,7 +137,7 @@ class TestTCGAMultimodal(unittest.TestCase):
             self.assertIn(column, record)
 
     def test_embedding_paths_point_to_files(self) -> None:
-        event = self.dataset.get_patient(P2).get_events(event_type="report")[0]
+        event = self.dataset.get_patient(P2).get_events(event_type="text")[0]
         self.assertEqual(event.file_id, "report")
         np.testing.assert_allclose(np.load(event.embedding_path), [0.5, -0.5])
 
@@ -172,6 +188,48 @@ class TestTCGAMultimodal(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     TCGAMultimodalDataset.prepare_metadata(tmp)
 
+    def test_missing_split_file_warns_and_leaves_folds_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            shutil.copy(self.root / "clinical.csv", tmp)
+            with self.assertLogs(LOGGER_NAME, logging.WARNING) as logs:
+                TCGAMultimodalDataset.prepare_metadata(tmp, tables=[])
+            self.assertIn("split_cases.csv", logs.output[0])
+            clinical = pd.read_csv(Path(tmp) / "tcga_multimodal_clinical-pyhealth.csv")
+            self.assertTrue(clinical["fold"].isna().all())
+
+    def test_unknown_split_cases_logged_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("clinical.csv", "split_cases.csv"):
+                shutil.copy(self.root / name, tmp)
+            with self.assertLogs(LOGGER_NAME, logging.INFO) as logs:
+                TCGAMultimodalDataset.prepare_metadata(tmp, tables=[])
+            ignored = [line for line in logs.output if "Ignoring" in line]
+            self.assertEqual(len(ignored), 1)
+            self.assertIn("1 case_id(s)", ignored[0])
+            clinical = pd.read_csv(Path(tmp) / "tcga_multimodal_clinical-pyhealth.csv")
+            self.assertNotIn(OTHER_COHORT_CASE, set(clinical["case_id"]))
+            self.assertNotIn("split_order", clinical.columns)  # extra columns dropped
+
+    def test_malformed_split_file_raises(self) -> None:
+        splits = pd.read_csv(self.root / "split_cases.csv")
+        out_of_range = f"outside 0-{NUM_FOLDS - 1}"
+        cases = {
+            "missing split column": (splits.drop(columns="split"), "missing columns"),
+            "duplicate case_id": (splits.iloc[[0, 0]], "repeats case_id"),
+            "non-integer split": (splits.assign(split=0.5), "non-integer"),
+            "empty split": (splits.assign(split=None), "non-integer"),
+            "negative split": (splits.assign(split=-1), out_of_range),
+            "split too large": (splits.assign(split=NUM_FOLDS), out_of_range),
+        }
+        for name, (frame, message) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                shutil.copy(self.root / "clinical.csv", tmp)
+                frame.to_csv(Path(tmp) / "split_cases.csv", index=False)
+                with self.assertRaisesRegex(ValueError, message):
+                    TCGAMultimodalDataset.prepare_metadata(tmp, tables=[])
+                output = Path(tmp) / "tcga_multimodal_clinical-pyhealth.csv"
+                self.assertFalse(output.exists())
+
     def test_unknown_table_raises(self) -> None:
         with self.assertRaises(ValueError):
             TCGAMultimodalDataset(root=str(self.root), tables=["genomics"])
@@ -180,32 +238,70 @@ class TestTCGAMultimodal(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             shutil.copy(self.root / "clinical.csv", tmp)
             with self.assertRaisesRegex(FileNotFoundError, "embeddings"):
-                TCGAMultimodalDataset.prepare_metadata(tmp, tables=["report"])
+                TCGAMultimodalDataset.prepare_metadata(tmp, tables=["text"])
             # A file in the wrong place doesn't count: still an error.
-            (Path(tmp) / "embeddings" / "report").mkdir(parents=True)
-            np.save(Path(tmp) / "embeddings" / "report" / "stray.npy", np.zeros(2))
-            with self.assertRaisesRegex(ValueError, "No <patient_id>"):
-                TCGAMultimodalDataset.prepare_metadata(tmp, tables=["report"])
+            (Path(tmp) / "embeddings" / "text").mkdir(parents=True)
+            np.save(Path(tmp) / "embeddings" / "text" / "stray.npy", np.zeros(2))
+            with self.assertRaisesRegex(ValueError, "No <case_id>"):
+                TCGAMultimodalDataset.prepare_metadata(tmp, tables=["text"])
             # Nothing is written on error, so fixing the folder is enough.
-            index = Path(tmp) / "tcga_multimodal_report-pyhealth.csv"
+            index = Path(tmp) / "tcga_multimodal_text-pyhealth.csv"
             self.assertFalse(index.exists())
 
     def test_tables_subset_needs_only_those_folders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             shutil.copy(self.root / "clinical.csv", tmp)
             shutil.copytree(
-                self.root / "embeddings" / "expression",
-                Path(tmp) / "embeddings" / "expression",
+                self.root / "embeddings" / "expr",
+                Path(tmp) / "embeddings" / "expr",
             )
-            TCGAMultimodalDataset.prepare_metadata(tmp, tables=["expression"])
+            TCGAMultimodalDataset.prepare_metadata(tmp, tables=["expr"])
             written = sorted(p.name for p in Path(tmp).glob("*-pyhealth.csv"))
             self.assertEqual(
                 written,
                 [
                     "tcga_multimodal_clinical-pyhealth.csv",
-                    "tcga_multimodal_expression-pyhealth.csv",
+                    "tcga_multimodal_expr-pyhealth.csv",
                 ],
             )
+
+    # End to end: dataset -> task -> processors fitted on train -> splits
+
+    def test_set_task_with_split_fits_on_train_only(self) -> None:
+        # P3 has no hist, so the task drops it and val is empty. P2 is the test
+        # part and has tokens not seen in train: age:(60, 80], race:asian and
+        # TCGA-LUAD.
+        task = MultimodalSurvivalPrediction(
+            expr_components=None, hist_components=1, text_components=None
+        )
+        split = SubjectSplit(([P1, P4], [P3], [P2]))
+
+        train, val, test = self.dataset.set_task(task, split=split, num_workers=1)
+
+        self.assertEqual(sorted(s["patient_id"] for s in train), [P1, P4])
+        self.assertEqual(len(val), 0)
+        (sample,) = test
+        self.assertEqual(sample["patient_id"], P2)
+
+        shapes = {"expr": (4,), "hist": (1,), "text": (2,), "demo": (7,)}
+        shapes |= {"canc": (1,), "duration": (1,), "event": (1,)}
+        for part in (train, test):
+            for row in part:
+                self.assertEqual({k: row[k].shape for k in shapes}, shapes)
+
+        # Train-only z-score of P2 [3, 2, 1, 0]: train mean [5.5, 6, 6.5, 7],
+        # std [4.5, 4, 3.5, 3]. A fit that saw P2 would give other values.
+        np.testing.assert_allclose(
+            sample["expr"], [-2.5 / 4.5, -1.0, -5.5 / 3.5, -7.0 / 3.0], rtol=1e-6
+        )
+
+        # Unseen tokens set no bit; the seen ones still do.
+        vocab = train.input_processors["demo"].label_vocab
+        expected = np.zeros(len(vocab), dtype=np.float32)
+        for token in ("sex:male", "ethnicity:not hispanic or latino"):
+            expected[vocab[token]] = 1.0
+        np.testing.assert_array_equal(sample["demo"], expected)
+        np.testing.assert_array_equal(sample["canc"], [0.0])
 
 
 def make_patient(
@@ -272,9 +368,9 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
             cls.files[name] = cls.tmp / f"{name}.npy"
             np.save(cls.files[name], np.array(vector, dtype=np.float32))
         cls.all_embeddings = {
-            "expression": {"rna": cls.files["rna"]},
-            "histology": {"DX1": cls.files["DX1"], "DX2": cls.files["DX2"]},
-            "report": {"report": cls.files["report"]},
+            "expr": {"rna": cls.files["rna"]},
+            "hist": {"DX1": cls.files["DX1"], "DX2": cls.files["DX2"]},
+            "text": {"report": cls.files["report"]},
         }
 
     @classmethod
@@ -300,8 +396,8 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
                 "expr": ("embedding_pca", {"n_components": 256}),
                 "hist": ("embedding_pca", {"n_components": 256}),
                 "text": ("embedding_pca", {"n_components": 256}),
-                "demo": "multi_hot",
-                "canc": "multi_hot",
+                "demo": "multi_hot_ignore_unknown",
+                "canc": "multi_hot_ignore_unknown",
             },
         )
         task = MultimodalSurvivalPrediction(
@@ -309,7 +405,10 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
         )
         self.assertEqual(
             task.input_schema,
-            {"text": ("embedding_pca", {"n_components": None}), "canc": "multi_hot"},
+            {
+                "text": ("embedding_pca", {"n_components": None}),
+                "canc": "multi_hot_ignore_unknown",
+            },
         )
         self.assertEqual(task.output_schema, {"duration": "tensor", "event": "tensor"})
 
@@ -350,14 +449,14 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
         np.testing.assert_allclose(mean["text"], [0.5, -0.5])
 
     def test_patient_missing_modality_skipped(self) -> None:
-        embeddings = {k: v for k, v in self.all_embeddings.items() if k != "histology"}
+        embeddings = {k: v for k, v in self.all_embeddings.items() if k != "hist"}
         with self.assertLogs("pyhealth.tasks.survival", "INFO") as log:
             self.assertEqual(self.run_task(embeddings=embeddings), [])
-        self.assertIn("no histology embedding", log.output[0])
+        self.assertIn("no hist embedding", log.output[0])
 
     def test_fewer_modalities_keep_patient(self) -> None:
         (sample,) = self.run_task(
-            embeddings={"report": {"report": self.files["report"]}},
+            embeddings={"text": {"report": self.files["report"]}},
             modalities=["text", "demo", "canc"],
         )
         self.assertEqual(
@@ -392,10 +491,6 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
         task = MultimodalSurvivalPrediction(modalities=("text", "demo"))
         json.dumps(vars(task))  # set_task builds its cache key this way
         self.assertEqual(task.modalities, ["text", "demo"])
-
-    @unittest.skip("needs EmbeddingPCAProcessor.fit/process (still a stub)")
-    def test_set_task_with_split_fits_on_train_only(self) -> None:
-        pass
 
 
 if __name__ == "__main__":
