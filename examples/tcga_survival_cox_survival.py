@@ -8,7 +8,8 @@ Paper link: https://proceedings.mlr.press/v297/song26a.html
     (preprint: https://arxiv.org/abs/2505.07683)
 Description: Reproduces the paper's per-modality Cox models on
     standardized, PCA-reduced foundation-model embeddings, combined by
-    two-stage late fusion, and ablates the fusion and the risk head.
+    two-stage late fusion, and ablates the fusion, the risk head and the
+    embedding reducer.
 
 Pipeline (per cross-validation fold, the paper's 5 folds from ``split_cases.csv``):
     TCGAMultimodalDataset -> MultimodalSurvivalPrediction
@@ -23,6 +24,10 @@ Ablations (novel relative to the paper):
       only with ``--oof``: 25 more stage-1 fits per fold).
     - Linear vs. MLP head ("two-stage mlp", "joint mlp").
     - Hyperparameter sweep on "joint mlp": hidden_dim, dropout, learning rate.
+    - Embedding reducer: PCA (the paper), kernel PCA, FastICA or a Gaussian
+      random projection at the same size, scored on the paper's pipeline
+      (unimodal + "two-stage"); only with ``--reduction-ablation``, which
+      runs this ablation alone.
 
 Results (real, the 10 smallest TCGA cohorts, 873 patients, PCA 256): two-stage
 fusion reaches C-index 0.711 ± 0.030, vs. 0.793 in the paper on all 32
@@ -38,6 +43,8 @@ Usage (synthetic data in a temp dir by default):
     python examples/tcga_survival_cox_survival.py --root /path/to/data \\
         --cache-dir /path/to/cache
     python examples/tcga_survival_cox_survival.py --oof  # adds "two-stage oof"
+    python examples/tcga_survival_cox_survival.py --reduction fast_ica
+    python examples/tcga_survival_cox_survival.py --reduction-ablation
 """
 
 import os
@@ -70,6 +77,10 @@ from pyhealth.metrics.survival import concordance_index
 from pyhealth.models import CoxSurvivalModel
 from pyhealth.models.cox_survival import Head
 from pyhealth.processors import TensorProcessor
+from pyhealth.processors.embedding_reduction_processor import (
+    METHOD_PCA,
+    REDUCTION_METHODS,
+)
 from pyhealth.tasks import MultimodalSurvivalPrediction
 from pyhealth.tasks.survival import EMBEDDING_MODALITIES
 from pyhealth.trainer import Trainer
@@ -79,7 +90,7 @@ logger = logging.getLogger(__name__)
 PAPER_RIDGE_ALPHA = 0.1
 # The paper's reported setting (results/analyze-results.ipynb, Table 1).
 PAPER_PCA_COMPONENTS = {"expr": 256, "hist": 256, "text": 256}
-SYNTHETIC_PCA_COMPONENTS = 8
+SYNTHETIC_COMPONENTS = 8
 INNER_FOLDS = 5
 SEED = 0
 
@@ -94,6 +105,7 @@ FUSION_KEY = "risk"
 PAPER_FUSION = "two-stage"
 OOF_FUSION = "two-stage oof"
 PAPER_CONFIGS = ("demo", "canc", "expr", "hist", "text", PAPER_FUSION)
+REDUCTION_CONFIGS = (*EMBEDDING_MODALITIES, PAPER_FUSION)
 OOF_COHORT_CONFIGS = (*PAPER_CONFIGS, OOF_FUSION)
 HAZARD_RATIO_FUSIONS = (PAPER_FUSION, OOF_FUSION)
 
@@ -107,7 +119,7 @@ SYNTHETIC_LOG_HAZARD_PER_AGE_YEAR = 0.02
 SYNTHETIC_EMBEDDING_DIM = 32
 SYNTHETIC_SIGNAL_DIMS = 2
 # Latent std relative to unit noise: the signal directions dominate the
-# variance, so PCA on each modality keeps them.
+# variance, so a reducer on each modality can keep them.
 SYNTHETIC_SIGNAL_SCALE = 3.0
 SYNTHETIC_LOG_HAZARD_PER_SIGNAL = 0.8
 SYNTHETIC_BASELINE_SURVIVAL_DAYS = 1000.0
@@ -751,33 +763,51 @@ def score(
     )
 
 
+def make_task(
+    components: Mapping[str, int | None], method: str = METHOD_PCA
+) -> MultimodalSurvivalPrediction:
+    """Builds the task with one reducer for every embedding modality.
+
+    Args:
+        components: Reduced size per embedding modality.
+        method: Reduction method of every embedding modality.
+
+    Returns:
+        The task.
+    """
+    return MultimodalSurvivalPrediction(
+        **{f"{m}_components": n for m, n in components.items()},
+        **{f"{m}_method": method for m in components},
+    )
+
+
 def run_fold(
     dataset: TCGAMultimodalDataset,
     fold: int,
-    pca_components: Mapping[str, int | None],
+    components: Mapping[str, int | None],
     oof: bool = False,
+    method: str = METHOD_PCA,
 ) -> FoldResult:
     """Trains and evaluates every configuration on one fold.
 
-    Processors (z-score + PCA, one-hot) are fitted on the training patients
-    only, through ``set_task(task, split=FoldSplit(...))``; so are those of
-    the inner folds of "two-stage oof".
+    Processors (z-score + reducer, one-hot) are fitted on the training
+    patients only, through ``set_task(task, split=FoldSplit(...))``; so are
+    those of the inner folds of "two-stage oof".
 
     Args:
         dataset: Dataset with a fold for at least one patient. Patients
             without a fold are left out.
         fold: Fold whose patients form the test set.
-        pca_components: PCA components per embedding modality.
+        components: Reduced size per embedding modality.
         oof: Whether to add "two-stage oof" (25 more stage-1 fits).
+        method: Reduction method of every embedding modality.
 
     Returns:
         C-index per configuration (unimodal, fused, ablations), pooled over
         the fold's test patients and per cancer type, and the stage-2 hazard
         ratios of "two-stage" and "two-stage oof".
     """
-    task = MultimodalSurvivalPrediction(
-        **{f"{m}_components": n for m, n in pca_components.items()}
-    )
+    task = make_task(components, method)
     split = FoldSplit(dataset.get_fold_assignments(), fold)
     train, test = dataset.set_task(task, split=split)
     n_events = _n_events(train)
@@ -809,6 +839,66 @@ def run_fold(
         if name in fusions
     }
     return score(predictions, dataset.get_cancer_types(), hazard_ratios)
+
+
+def run_reduction_fold(
+    dataset: TCGAMultimodalDataset,
+    fold: int,
+    components: Mapping[str, int | None],
+    method: str,
+) -> dict[str, float]:
+    """Scores the paper's pipeline on one fold with one embedding reducer.
+
+    Args:
+        dataset: Dataset with a fold for at least one patient.
+        fold: Fold whose patients form the test set.
+        components: Reduced size per embedding modality.
+        method: Reduction method of every embedding modality.
+
+    Returns:
+        Test C-index of each embedding modality and of "two-stage".
+    """
+    task = make_task(components, method)
+    train, test = dataset.set_task(
+        task, split=FoldSplit(dataset.get_fold_assignments(), fold)
+    )
+    n_events = _n_events(train)
+
+    train_risks, test_risks = stage1(train, test, task.modalities, LINEAR)
+    fusion = stage2(train_risks, test_risks, n_events)
+    predictions = {**test_risks, PAPER_FUSION: fusion.predictions}
+    return {
+        name: concordance_index(p.duration, p.event, p.risk)
+        for name, p in predictions.items()
+        if name in REDUCTION_CONFIGS
+    }
+
+
+def reduction_ablation(
+    dataset: TCGAMultimodalDataset, components: Mapping[str, int | None]
+) -> pd.DataFrame:
+    """Runs :func:`run_reduction_fold` for every reducer on every fold.
+
+    Args:
+        dataset: Dataset with a fold for at least one patient.
+        components: Reduced size per embedding modality, the same for every
+            reducer.
+
+    Returns:
+        ``mean ± std`` (ddof=1, over folds) of the test C-index, one row per
+        reducer, one column per configuration of ``REDUCTION_CONFIGS``.
+    """
+    folds = sorted(set(dataset.get_fold_assignments().values()))
+    rows = {}
+    for method in REDUCTION_METHODS:
+        table = pd.DataFrame(
+            [run_reduction_fold(dataset, f, components, method) for f in folds]
+        )
+        rows[method] = {
+            config: f"{table[config].mean():.3f} ± {table[config].std():.3f}"
+            for config in REDUCTION_CONFIGS
+        }
+    return pd.DataFrame(rows).T
 
 
 def summarize(results: Sequence[FoldResult]) -> pd.DataFrame:
@@ -860,31 +950,24 @@ def summarize_cohorts(
     return pd.DataFrame(cells).sort_index()
 
 
-def run(
-    root: str,
-    cache_dir: str | None,
-    pca_components: Mapping[str, int | None],
-    num_workers: int,
-    oof: bool = False,
-) -> list[FoldResult]:
-    """Loads the dataset and runs every fold.
+def load_dataset(
+    root: str, cache_dir: str | None, num_workers: int
+) -> TCGAMultimodalDataset:
+    """Loads the dataset and warns once about patients without a fold.
 
     Patients without a fold in ``split_cases.csv`` are left out of every
-    fold, with one warning that gives their count.
+    fold.
 
     Args:
         root: Dataset directory in the loader layout, with ``split_cases.csv``.
         cache_dir: PyHealth cache directory; None for PyHealth's default.
-        pca_components: PCA components per embedding modality.
         num_workers: Worker processes for the dataset and task.
-        oof: Whether to add "two-stage oof" to every fold.
 
     Returns:
-        One result per fold, in fold order.
+        The dataset.
 
     Raises:
-        ValueError: If no patient has a fold, or a fold has no training or
-            test sample.
+        ValueError: If no patient has a fold.
     """
     dataset = TCGAMultimodalDataset(
         root=root, cache_dir=cache_dir, num_workers=num_workers
@@ -899,11 +982,31 @@ def run(
             unassigned,
             len(patients),
         )
+    return dataset
 
-    return [
-        run_fold(dataset, fold, pca_components, oof)
-        for fold in sorted(set(folds.values()))
-    ]
+
+def run(
+    dataset: TCGAMultimodalDataset,
+    components: Mapping[str, int | None],
+    oof: bool = False,
+    method: str = METHOD_PCA,
+) -> list[FoldResult]:
+    """Runs every fold.
+
+    Args:
+        dataset: Dataset from :func:`load_dataset`.
+        components: Reduced size per embedding modality.
+        oof: Whether to add "two-stage oof" to every fold.
+        method: Reduction method of every embedding modality.
+
+    Returns:
+        One result per fold, in fold order.
+
+    Raises:
+        ValueError: If a fold has no training or test sample.
+    """
+    folds = sorted(set(dataset.get_fold_assignments().values()))
+    return [run_fold(dataset, fold, components, oof, method) for fold in folds]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -917,11 +1020,17 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--cache-dir", help="PyHealth cache directory")
     parser.add_argument(
-        "--pca-components",
+        "--n-components",
         type=int,
-        help="PCA components of every embedding modality; default: the paper's "
-        f"{PAPER_PCA_COMPONENTS['expr']}, or {SYNTHETIC_PCA_COMPONENTS} on "
+        help="reduced size of every embedding modality; default: the paper's "
+        f"{PAPER_PCA_COMPONENTS['expr']}, or {SYNTHETIC_COMPONENTS} on "
         "synthetic data",
+    )
+    parser.add_argument(
+        "--reduction",
+        choices=REDUCTION_METHODS,
+        default=METHOD_PCA,
+        help="embedding reducer of every embedding modality; default: the paper's pca",
     )
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument(
@@ -930,7 +1039,27 @@ def _parse_args() -> argparse.Namespace:
         help='add the "two-stage oof" ablation: stage 2 on out-of-fold stage-1 '
         "risks (25 more stage-1 fits per fold)",
     )
+    parser.add_argument(
+        "--reduction-ablation",
+        action="store_true",
+        help="run only the reducer ablation: the paper's pipeline with each of "
+        f"{', '.join(REDUCTION_METHODS)} at the same size (ignores --reduction "
+        "and --oof)",
+    )
     return parser.parse_args()
+
+
+def _print_results(results: Sequence[FoldResult], oof: bool) -> None:
+    """Prints the pooled and per-cohort C-index and the hazard ratios."""
+    cohort_configs = OOF_COHORT_CONFIGS if oof else PAPER_CONFIGS
+
+    with pd.option_context("display.width", 120, "display.max_columns", None):
+        print(f"\nC-index over {len(results)} folds:")
+        print(summarize(results).round(3).to_string())
+        print("\nPer-cohort C-index, mean ± std (folds with a comparable pair):")
+        print(summarize_cohorts(results, cohort_configs).to_string())
+        print("\nStage-2 hazard ratios exp(coef), mean over folds:")
+        print(summarize_hazard_ratios(results).round(3).to_string())
 
 
 def main() -> None:
@@ -944,24 +1073,21 @@ def main() -> None:
             root = str(Path(tmp) / "data")
             write_synthetic_data(root)
             cache_dir = args.cache_dir or str(Path(tmp) / "cache")
-            components = dict.fromkeys(EMBEDDING_MODALITIES, SYNTHETIC_PCA_COMPONENTS)
+            components = dict.fromkeys(EMBEDDING_MODALITIES, SYNTHETIC_COMPONENTS)
         else:
             root, cache_dir = args.root, args.cache_dir
             components = dict(PAPER_PCA_COMPONENTS)
 
-        if args.pca_components is not None:
-            components = dict.fromkeys(EMBEDDING_MODALITIES, args.pca_components)
+        if args.n_components is not None:
+            components = dict.fromkeys(EMBEDDING_MODALITIES, args.n_components)
 
-        results = run(root, cache_dir, components, args.num_workers, args.oof)
-    cohort_configs = OOF_COHORT_CONFIGS if args.oof else PAPER_CONFIGS
-
-    with pd.option_context("display.width", 120, "display.max_columns", None):
-        print(f"\nC-index over {len(results)} folds:")
-        print(summarize(results).round(3).to_string())
-        print("\nPer-cohort C-index, mean ± std (folds with a comparable pair):")
-        print(summarize_cohorts(results, cohort_configs).to_string())
-        print("\nStage-2 hazard ratios exp(coef), mean over folds:")
-        print(summarize_hazard_ratios(results).round(3).to_string())
+        dataset = load_dataset(root, cache_dir, args.num_workers)
+        if args.reduction_ablation:
+            table = reduction_ablation(dataset, components)
+            print(f"\nC-index per reducer, mean ± std over folds, {components}:")
+            print(table.to_string())
+        else:
+            _print_results(run(dataset, components, args.oof, args.reduction), args.oof)
     print(f"\nRuntime: {time.perf_counter() - start:.0f} s")
 
 

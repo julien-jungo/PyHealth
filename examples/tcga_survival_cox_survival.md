@@ -15,9 +15,11 @@ ablations.
   folds train. There is no validation set, as in the paper. Patients without
   a fold (79 of the 8061 in the authors' full `clinical.csv`) are left out,
   with one warning that gives the count.
-- **Features:** expr/hist/text z-scored and PCA-reduced (EmbeddingPCAProcessor)
-  to 256 components each, the paper's reported setting; 8 on synthetic data
-  (32-dim embeddings). demo and canc are one-hot (multi_hot), unscaled.
+- **Features:** expr/hist/text z-scored and PCA-reduced
+  (EmbeddingReductionProcessor, `method="pca"`) to 256 components each, the
+  paper's reported setting; 8 on synthetic data (32-dim embeddings). Set the
+  size with `--n-components` and the reducer with `--reduction`. demo and
+  canc are one-hot (multi_hot), unscaled.
 - **Optimizer:** full-batch Adam, lr 1e-2, seed 0; one epoch of
   `steps_per_epoch` steps. Full batch makes the Cox risk sets match the
   paper's full partial likelihood. Steps: 3,000 for every linear fit (stage 1
@@ -65,6 +67,12 @@ All are novel relative to the paper.
   modalities.
 - **Hyperparameter sweep** on "joint mlp", one change at a time: hidden_dim 16
   ("h=16"), dropout 0.3 ("p=0.3"), learning rate 1e-3 ("lr=1e-3").
+- **Embedding reducer:** the z-score is followed by one of `pca` (the paper),
+  `kernel_pca` (RBF kernel), `fast_ica` (unit-variance whitening) or
+  `random_projection` (Gaussian), all seeded with 42 and at the same size.
+  Each reducer is scored on the paper's pipeline: the three embedding
+  unimodal models and "two-stage" (fusion over all five modalities). Run it
+  with `--reduction-ablation`; it runs only this ablation.
 
 ## Synthetic data
 
@@ -125,6 +133,44 @@ Findings:
   (0.751) and lr 1e-3 (0.780) all stay within about one std of the default
   MLP, so the sweep shows no clear effect.
 
+### Embedding reducer
+
+`--reduction-ablation`: 300 patients, 5 folds, 8 components per modality
+(32-dim embeddings); about 200 s on an 8-core CPU. Same synthetic data and
+seed as above, so the `pca` row equals the main table.
+
+| Reducer           | expr          | hist          | text          | two-stage     |
+| ----------------- | ------------- | ------------- | ------------- | ------------- |
+| pca (paper)       | 0.669 ± 0.037 | 0.584 ± 0.056 | 0.681 ± 0.036 | 0.793 ± 0.033 |
+| kernel_pca        | 0.662 ± 0.027 | 0.579 ± 0.055 | 0.672 ± 0.024 | 0.762 ± 0.033 |
+| fast_ica          | 0.669 ± 0.037 | 0.584 ± 0.056 | 0.681 ± 0.036 | 0.793 ± 0.033 |
+| random_projection | 0.653 ± 0.058 | 0.600 ± 0.073 | 0.640 ± 0.021 | 0.738 ± 0.045 |
+
+Findings:
+
+- FastICA scores the same as PCA to three decimals. Its sources are an
+  invertible linear map of the PCA scores. Without a penalty, a linear Cox
+  model gives the same risks on any invertible linear map of its inputs.
+  The ridge penalty changes this only through the scale of each input, and
+  here it is weak: `weight_decay = 0.1 / n_events`, about 1e-3 (about 119
+  events per training fold). So the risks differ by only about 2e-3 and
+  the C-index does not change. This holds only for this weak penalty; a
+  stronger ridge can separate the two. FastICA also did not converge in any
+  of the 15 fits (sklearn `ConvergenceWarning`, default `max_iter` 200). Its
+  sources are then not fully independent, but they are still an invertible
+  map of the PCA scores, so the argument above still holds.
+- Kernel PCA (RBF) is slightly below PCA on every modality (by 0.005 to
+  0.009) and loses 0.031 on fusion. The synthetic signal is linear, so a
+  nonlinear kernel has nothing to gain.
+- The random projection keeps 8 random directions instead of the
+  high-variance ones, so it misses part of the signal: text drops by 0.041
+  and fusion by 0.055. hist is the only modality where it is higher (0.600
+  vs. 0.584, within one std).
+- All other differences, kernel PCA's fusion drop included, are within
+  about one std over folds. This synthetic data favors PCA by design (the
+  signal lies in the high-variance directions); it is not evidence for
+  real embeddings, where the reducer ablation was not run.
+
 ## Real data
 
 The 10 smallest TCGA cohorts, 873 patients, PCA 256, 5 folds, 8-core CPU,
@@ -155,6 +201,10 @@ After an interrupted run, delete the cache: PyHealth's `set_task` can leave
 a partial sample cache behind. The cache is the `--cache-dir` folder, or,
 without it, `<user cache dir>/pyhealth` (`~/.cache/pyhealth` on Linux,
 `~/Library/Caches/pyhealth` on macOS; the run logs the path).
+
+Caches written before the `embedding_reduction` processor are not reused:
+its registry name and its `method` argument are part of the `set_task` cache
+key, so the first run after the update rebuilds every sample cache once.
 
 Per-cohort C-index, two-stage fusion vs. the best unimodal model of
 demo/expr/hist/text (mean over the folds with a comparable pair; DLBC has one
