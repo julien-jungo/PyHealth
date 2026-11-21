@@ -41,7 +41,7 @@ KERNEL_PCA_KERNEL = "rbf"
 FAST_ICA_WHITEN = "unit-variance"
 
 
-class Reducer(Protocol):
+class _Reducer(Protocol):
     """The part of the sklearn transformer API the processor uses."""
 
     def fit(self, X: np.ndarray) -> Any: ...
@@ -49,7 +49,7 @@ class Reducer(Protocol):
     def transform(self, X: np.ndarray) -> np.ndarray: ...
 
 
-def make_reducer(method: str, n_components: int) -> Reducer:
+def _make_reducer(method: str, n_components: int) -> _Reducer:
     """Builds the unfitted sklearn reducer of ``method``.
 
     Args:
@@ -96,6 +96,13 @@ def validate_reduction(n_components: int | None, method: str) -> None:
         ValueError: If ``method`` is not in ``REDUCTION_METHODS``,
             ``n_components`` is not a positive int or ``None``, or
             ``n_components`` is ``None`` with a method other than ``"pca"``.
+
+    Examples:
+        >>> validate_reduction(8, "kernel_pca")
+        >>> validate_reduction(0, "pca")
+        Traceback (most recent call last):
+            ...
+        ValueError: n_components must be a positive int or None, got 0
     """
     if method not in REDUCTION_METHODS:
         raise ValueError(
@@ -190,7 +197,7 @@ class EmbeddingReductionProcessor(LegacyFeatureProcessor):
         self.n_components = n_components
         self._input_dim: int | None = None
         self._scaler: StandardScaler | None = None
-        self._reducer: Reducer | None = None
+        self._reducer: _Reducer | None = None
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Fits the scaler and the reducer on the samples' embeddings.
@@ -234,7 +241,7 @@ class EmbeddingReductionProcessor(LegacyFeatureProcessor):
         scaler = StandardScaler().fit(matrix)
         reducer = None
         if self.n_components is not None:
-            reducer = make_reducer(self.method, self.n_components)
+            reducer = _make_reducer(self.method, self.n_components)
             reducer.fit(scaler.transform(matrix))
 
         self._input_dim, self._scaler, self._reducer = dim, scaler, reducer
