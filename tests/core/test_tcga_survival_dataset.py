@@ -39,6 +39,7 @@ from pyhealth.tasks import MultimodalSurvivalPrediction
 P1, P2, P3, P4, P5 = (f"TCGA-AA-000{i}" for i in range(1, 6))
 OTHER_COHORT_CASE = "TCGA-ZZ-0001"
 LOGGER_NAME = "pyhealth.datasets.tcga_survival"
+PCA_256 = ("embedding_reduction", {"n_components": 256, "method": "pca"})
 EMBEDDING_FILES = {
     "expr": {
         P1: {"rna-01A": [1.0, 2.0, 3.0, 4.0]},
@@ -272,7 +273,10 @@ class TestTCGAMultimodal(unittest.TestCase):
         # part and has tokens not seen in train: age:(60, 80], race:asian and
         # TCGA-LUAD.
         task = MultimodalSurvivalPrediction(
-            expr_components=None, hist_components=1, text_components=None
+            expr_components=None,
+            hist_components=1,
+            text_components=None,
+            hist_method="random_projection",
         )
         split = SubjectSplit(([P1, P4], [P3], [P2]))
 
@@ -282,6 +286,8 @@ class TestTCGAMultimodal(unittest.TestCase):
         self.assertEqual(len(val), 0)
         (sample,) = test
         self.assertEqual(sample["patient_id"], P2)
+        methods = {m: train.input_processors[m].method for m in ("expr", "hist")}
+        self.assertEqual(methods, {"expr": "pca", "hist": "random_projection"})
 
         shapes = {"expr": (4,), "hist": (1,), "text": (2,), "demo": (7,)}
         shapes |= {"canc": (1,), "duration": (1,), "event": (1,)}
@@ -393,9 +399,9 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
         self.assertEqual(
             MultimodalSurvivalPrediction().input_schema,
             {
-                "expr": ("embedding_pca", {"n_components": 256}),
-                "hist": ("embedding_pca", {"n_components": 256}),
-                "text": ("embedding_pca", {"n_components": 256}),
+                "expr": PCA_256,
+                "hist": PCA_256,
+                "text": PCA_256,
                 "demo": "multi_hot_ignore_unknown",
                 "canc": "multi_hot_ignore_unknown",
             },
@@ -406,8 +412,26 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
         self.assertEqual(
             task.input_schema,
             {
-                "text": ("embedding_pca", {"n_components": None}),
+                "text": (
+                    "embedding_reduction",
+                    {"n_components": None, "method": "pca"},
+                ),
                 "canc": "multi_hot_ignore_unknown",
+            },
+        )
+        task = MultimodalSurvivalPrediction(
+            expr_components=16,
+            expr_method="kernel_pca",
+            hist_method="fast_ica",
+            text_method="random_projection",
+            modalities=["expr", "hist", "text"],
+        )
+        self.assertEqual(
+            {m: kwargs for m, (_, kwargs) in task.input_schema.items()},
+            {
+                "expr": {"n_components": 16, "method": "kernel_pca"},
+                "hist": {"n_components": 256, "method": "fast_ica"},
+                "text": {"n_components": 256, "method": "random_projection"},
             },
         )
         self.assertEqual(task.output_schema, {"duration": "tensor", "event": "tensor"})
@@ -483,12 +507,21 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
             {"aggregation": "max"},
             {"expr_components": 0},
             {"hist_components": 2.5},
+            {"text_method": "umap"},
+            {"expr_method": "PCA"},
+            {"hist_components": None, "hist_method": "fast_ica"},
         ):
             with self.subTest(**kwargs), self.assertRaises(ValueError):
                 MultimodalSurvivalPrediction(**kwargs)
 
+    def test_invalid_method_names_the_modality(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"^hist: method must be one of"):
+            MultimodalSurvivalPrediction(hist_method="umap")
+
     def test_arguments_are_json_serializable(self) -> None:
-        task = MultimodalSurvivalPrediction(modalities=("text", "demo"))
+        task = MultimodalSurvivalPrediction(
+            modalities=("text", "demo"), text_method="kernel_pca"
+        )
         json.dumps(vars(task))  # set_task builds its cache key this way
         self.assertEqual(task.modalities, ["text", "demo"])
 

@@ -18,6 +18,10 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from ..processors.embedding_reduction_processor import (
+    METHOD_PCA,
+    validate_reduction,
+)
 from .base_task import BaseTask
 
 logger = logging.getLogger(__name__)
@@ -39,9 +43,9 @@ class MultimodalSurvivalPrediction(BaseTask):
       histology, pathology report), read from the dataset's events of the
       same name. A patient with several files for a
       modality (e.g. two slides) gets them combined by ``aggregation``. The
-      vectors are standardized and PCA-reduced by
-      :class:`~pyhealth.processors.EmbeddingPCAProcessor`, fitted on the
-      training part when ``set_task`` is given a ``split``.
+      vectors are standardized and reduced (PCA by default, as in the paper)
+      by :class:`~pyhealth.processors.EmbeddingReductionProcessor`, fitted on
+      the training part when ``set_task`` is given a ``split``.
     - ``demo``: tokens for sex, age bin (as in the paper: ``(0, 20]`` to
       ``(80, 100]``), race and ethnicity, one-hot encoded by
       :class:`~pyhealth.processors.MultiHotIgnoreUnknownProcessor`, which
@@ -57,11 +61,16 @@ class MultimodalSurvivalPrediction(BaseTask):
     patients who lack the others; the paper uses patients with all of them.
 
     Args:
-        expr_components: PCA components for ``expr``, or ``None`` to only
-            standardize. Defaults to 256, the size the paper reports results
-            with (Sec. 3.2, Table 1).
-        hist_components: PCA components for ``hist``, or ``None``.
-        text_components: PCA components for ``text``, or ``None``.
+        expr_components: Reduced size of ``expr``, or ``None`` to only
+            standardize (only with the ``"pca"`` method). Defaults to 256,
+            the PCA size the paper reports results with (Sec. 3.2, Table 1).
+        hist_components: Reduced size of ``hist``, or ``None``.
+        text_components: Reduced size of ``text``, or ``None``.
+        expr_method: Reduction method of ``expr``: ``"pca"`` (the paper,
+            default), ``"kernel_pca"``, ``"fast_ica"`` or
+            ``"random_projection"``.
+        hist_method: Reduction method of ``hist``.
+        text_method: Reduction method of ``text``.
         modalities: Fields to emit, a non-empty subset of
             ``("expr", "hist", "text", "demo", "canc")``. Defaults to all.
         aggregation: How to combine several files of one patient and
@@ -70,8 +79,9 @@ class MultimodalSurvivalPrediction(BaseTask):
 
     Raises:
         ValueError: If ``modalities`` is empty or has unknown names,
-            ``aggregation`` is unknown, or a component count is not a
-            positive integer or ``None``.
+            ``aggregation`` or a reduction method is unknown, a component
+            count is not a positive integer or ``None``, or it is ``None``
+            with a method other than ``"pca"``.
 
     Examples:
         >>> from pyhealth.datasets import TCGAMultimodalDataset
@@ -79,7 +89,11 @@ class MultimodalSurvivalPrediction(BaseTask):
         >>> dataset = TCGAMultimodalDataset(root="/path/to/data", tables=["text"])
         >>> task = MultimodalSurvivalPrediction(modalities=["text", "demo", "canc"])
         >>> task.input_schema["text"]
-        ('embedding_pca', {'n_components': 256})
+        ('embedding_reduction', {'n_components': 256, 'method': 'pca'})
+        >>> MultimodalSurvivalPrediction(
+        ...     text_components=64, text_method="fast_ica"
+        ... ).input_schema["text"]
+        ('embedding_reduction', {'n_components': 64, 'method': 'fast_ica'})
     """
 
     task_name: str = "MultimodalSurvivalPrediction"
@@ -90,6 +104,9 @@ class MultimodalSurvivalPrediction(BaseTask):
         expr_components: int | None = 256,
         hist_components: int | None = 256,
         text_components: int | None = 256,
+        expr_method: str = METHOD_PCA,
+        hist_method: str = METHOD_PCA,
+        text_method: str = METHOD_PCA,
         modalities: Sequence[str] = ALL_MODALITIES,
         aggregation: str = "mean",
     ) -> None:
@@ -106,18 +123,22 @@ class MultimodalSurvivalPrediction(BaseTask):
             "hist": hist_components,
             "text": text_components,
         }
+        methods = {"expr": expr_method, "hist": hist_method, "text": text_method}
         for name, n in components.items():
-            if n is not None and (
-                isinstance(n, bool) or not isinstance(n, int) or n < 1
-            ):
-                raise ValueError(f"{name}_components must be a positive int or None")
+            try:
+                validate_reduction(n, methods[name])
+            except ValueError as err:
+                raise ValueError(f"{name}: {err}") from err
         # Plain str/int/list attributes: set_task serializes vars(task) to JSON
         # for its cache key.
         self.modalities: list[str] = [m for m in ALL_MODALITIES if m in modalities]
         self.aggregation = aggregation
         self.input_schema: dict[str, Any] = {
             m: (
-                ("embedding_pca", {"n_components": components[m]})
+                (
+                    "embedding_reduction",
+                    {"n_components": components[m], "method": methods[m]},
+                )
                 if m in EMBEDDING_MODALITIES
                 else "multi_hot_ignore_unknown"
             )
