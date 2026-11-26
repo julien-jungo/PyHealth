@@ -87,6 +87,7 @@ class MultimodalSurvivalPrediction(BaseTask):
         >>> from pyhealth.datasets import TCGAMultimodalDataset
         >>> from pyhealth.tasks import MultimodalSurvivalPrediction
         >>> dataset = TCGAMultimodalDataset(root="/path/to/data", tables=["text"])
+        ... # doctest: +SKIP
         >>> task = MultimodalSurvivalPrediction(modalities=["text", "demo", "canc"])
         >>> task.input_schema["text"]
         ('embedding_reduction', {'n_components': 256, 'method': 'pca'})

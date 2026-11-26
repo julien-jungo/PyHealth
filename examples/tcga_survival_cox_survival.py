@@ -11,7 +11,7 @@ Description: Reproduces the paper's per-modality Cox models on
     two-stage late fusion, and ablates the fusion, the risk head and the
     embedding reducer.
 
-Pipeline (per cross-validation fold, the paper's 5 folds from ``split_cases.csv``):
+Pipeline, per fold of the paper's 5 CV folds (``split_cases.csv``):
     TCGAMultimodalDataset -> MultimodalSurvivalPrediction
     -> set_task(split=FoldSplit) (processors fitted on the training fold only)
     -> one CoxSurvivalModel per modality (stage 1)
@@ -20,25 +20,19 @@ Pipeline (per cross-validation fold, the paper's 5 folds from ``split_cases.csv`
 
 Ablations (novel relative to the paper):
     - Two-stage vs. joint fusion ("joint": one linear model, all modalities).
-    - In-sample vs. out-of-fold stage-1 risks for stage 2 ("two-stage oof",
-      only with ``--oof``: 25 more stage-1 fits per fold).
+    - In-sample vs. out-of-fold stage-1 risks ("two-stage oof", ``--oof``).
     - Linear vs. MLP head ("two-stage mlp", "joint mlp").
     - Hyperparameter sweep on "joint mlp": hidden_dim, dropout, learning rate.
     - Embedding reducer: PCA (the paper), kernel PCA, FastICA or a Gaussian
-      random projection at the same size, scored on the paper's pipeline
-      (unimodal + "two-stage"); only with ``--reduction-ablation``, which
-      runs this ablation alone.
+      random projection (``--reduction-ablation``, run alone).
 
-Results (real, the 10 smallest TCGA cohorts, 873 patients, PCA 256): two-stage
-fusion reaches C-index 0.711 ± 0.030, vs. 0.793 in the paper on all 32
-cohorts. It beats each embedding modality (0.660-0.664) but not cancer type
-alone (0.709). Out-of-fold stage-1 risks ("two-stage oof", ``--oof``) reach
-0.739 ± 0.023. With ``--reduction-ablation``, kernel PCA lifts each embedding
-modality to about 0.71 (cancer type alone: 0.709) and fusion to 0.733 ± 0.023,
-so PCA, the paper's reducer, is not the best one here. A likely cause is that
-the RBF components encode the cohort; this is not checked. Setup, convergence
-checks, full synthetic and real tables, per-cohort results vs. the paper's
-Table 17, and caveats are in ``examples/tcga_survival_cox_survival.md``.
+Results (real data, the 10 smallest TCGA cohorts, 873 patients, PCA 256):
+two-stage fusion reaches C-index 0.711 ± 0.030, vs. 0.793 in the paper on
+all 32 cohorts; it and cancer type alone (0.709 ± 0.016) are within the
+noise. Out-of-fold stage-1 risks reach 0.739 ± 0.023. With kernel PCA
+instead of PCA, two-stage fusion reaches 0.733 ± 0.023. Setup, all tables,
+per-cohort results vs. the paper's Table 17, caveats and the guide to get
+the real data are in ``examples/tcga_survival_cox_survival.md``.
 
 Usage (synthetic data in a temp dir by default):
     python examples/tcga_survival_cox_survival.py
@@ -812,6 +806,7 @@ def run_fold(
     task = make_task(components, method)
     split = FoldSplit(dataset.get_fold_assignments(), fold)
     train, test = dataset.set_task(task, split=split)
+    print(f"fold {fold} ({fold + 1}/{NUM_FOLDS}): samples built, training", flush=True)
     n_events = _n_events(train)
 
     train_risks, test_risks = stage1(train, test, task.modalities, LINEAR)
@@ -863,6 +858,10 @@ def run_reduction_fold(
     task = make_task(components, method)
     train, test = dataset.set_task(
         task, split=FoldSplit(dataset.get_fold_assignments(), fold)
+    )
+    print(
+        f"{method} fold {fold} ({fold + 1}/{NUM_FOLDS}): samples built, training",
+        flush=True,
     )
     n_events = _n_events(train)
 

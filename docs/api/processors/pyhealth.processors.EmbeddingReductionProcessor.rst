@@ -1,12 +1,9 @@
 pyhealth.processors.EmbeddingReductionProcessor
 ===============================================
 
-Standardizes fixed-length embeddings and reduces them with PCA (the default),
-kernel PCA (RBF kernel), FastICA (unit-variance whitening) or a Gaussian
-random projection. The scaler and the reducer are fitted on the training
-split. Registered as ``"embedding_reduction"``; choose the reducer with the
-``method`` argument (``"pca"``, ``"kernel_pca"``, ``"fast_ica"`` or
-``"random_projection"``).
+Standardizes fixed-length embeddings and reduces their dimension, fitted on
+the training split. Registered as ``"embedding_reduction"``; the ``method``
+argument picks the reducer.
 
 .. autoclass:: pyhealth.processors.EmbeddingReductionProcessor
     :members:

@@ -4,48 +4,42 @@ Results of `examples/tcga_survival_cox_survival.py` for the two-stage late
 fusion of Song et al. ([Multimodal Cancer Modeling in the Age of Foundation
 Model Embeddings](https://proceedings.mlr.press/v297/song26a.html), ML4H 2025;
 preprint: [arXiv:2505.07683](https://arxiv.org/abs/2505.07683)) and its
-ablations.
+ablations. For real TCGA data, see [Run on real data](#run-on-real-data).
 
 ## Experimental setup
 
 - **Data:** `--root` in the TCGAMultimodalDataset layout, or by default 300
   synthetic patients in 3 cohorts (`write_synthetic_data`, temp dir).
-- **Folds:** the paper's 5 published CV folds, the `split` column of the
-  authors' `results/split_cases.csv`; fold `k` is the test set, the other
-  folds train. There is no validation set, as in the paper. Patients without
-  a fold (79 of the 8061 in the authors' full `clinical.csv`) are left out,
-  with one warning that gives the count.
+- **Folds:** the paper's 5 published CV folds (the `split` column of the
+  authors' `results/split_cases.csv`); fold `k` is the test set, the other
+  folds train, with no validation set, as in the paper. Patients without a
+  fold (79 of the 8,061 in the authors' full `clinical.csv`, so 7,982 remain)
+  are left out with one warning that gives the count.
 - **Features:** expr/hist/text z-scored and PCA-reduced
-  (EmbeddingReductionProcessor, `method="pca"`) to 256 components each, the
-  paper's reported setting; 8 on synthetic data (32-dim embeddings). Set the
-  size with `--n-components` and the reducer with `--reduction`. demo and
-  canc are one-hot (multi_hot), unscaled.
-- **Optimizer:** full-batch Adam, lr 1e-2, seed 0; one epoch of
-  `steps_per_epoch` steps. Full batch makes the Cox risk sets match the
-  paper's full partial likelihood. Steps: 3,000 for every linear fit (stage 1
-  and stage 2), 10,000 for "joint", 300 for MLP heads.
+  (EmbeddingReductionProcessor) to 256 components each, the paper's setting; 8
+  on synthetic data (32-dim embeddings). Set them with `--n-components` and
+  `--reduction`. demo and canc are one-hot (multi_hot), unscaled.
+- **Optimizer:** full-batch Adam, so the Cox risk sets match the paper's full
+  partial likelihood; lr 1e-2, seed 0. Steps: 3,000 for every linear fit
+  (stage 1 and stage 2), 10,000 for "joint", 300 for MLP heads.
 - **Ridge:** the paper's `CoxPHSurvivalAnalysis(alpha=0.1)` becomes
-  `weight_decay = ridge_weight_decay(0.1, n_events)`, with `n_events` counted
-  on the training fold. The same decay is used for MLP heads, where it is not
-  equivalent to a ridge penalty.
+  `weight_decay = ridge_weight_decay(0.1, n_events)` (`n_events` of the
+  training fold). MLP heads use the same decay, where it is not a ridge
+  penalty.
 - **Fusion (paper, "two-stage"):** one linear model per modality; their
-  in-sample training risks are z-scored with training statistics (a
-  `"zscore"` TensorProcessor) and fed to a second linear model.
+  in-sample training risks are z-scored with training statistics (a `"zscore"`
+  TensorProcessor) and fed to a second linear model.
 - **Metric:** Harrell's C-index on the fold's test patients, pooled and per
   cancer type, then mean ± std (ddof=1) over the 5 folds.
 
 ### Convergence
 
-Real data, folds 0 and 1, against the exact Newton optimum of the same
-objective:
-
-- At 3,000 steps the unimodal and stage-2 fits are at most 5.2e-4 above the
-  optimal loss and at most 3.4e-4 off its test C-index.
-- At 300 steps the expr fit is 0.03 above the optimal loss and its test
-  C-index is off by up to 0.017.
-- "joint" (about 800 inputs) is 0.008 above the optimal loss at 3,000 steps
-  and 2e-4 at 10,000.
-- MLP heads are not trained to convergence; 300 steps act as early stopping.
+On real data (folds 0 and 1), against the exact Newton optimum of the same
+objective, the unimodal and stage-2 fits at 3,000 steps are at most 5.2e-4
+above the optimal loss and 3.4e-4 off its test C-index. At 300 steps, the expr
+fit is 0.03 above the optimal loss and up to 0.017 off its C-index. "joint"
+(about 800 inputs) is 0.008 above at 3,000 steps and 2e-4 at 10,000. MLP heads
+are not trained to convergence: 300 steps act as early stopping.
 
 ## Ablations
 
@@ -54,31 +48,24 @@ All are novel relative to the paper.
 - **Two-stage vs. joint fusion:** "joint" is one linear model over all five
   modalities, trained end to end.
 - **In-sample vs. out-of-fold stage-1 risks:** "two-stage oof" trains stage 2
-  on cross-fitted stage-1 risks. The training patients are dealt into 5 inner
-  folds, stratified by event; each inner fold is scored by stage-1 models
-  trained on the other 4. Each inner fold is a `set_task(split=FoldSplit)`
-  call, so its processors are fitted on its inner training patients only.
-  Test risks come from the stage-1 models on the full training fold, as in
-  "two-stage". The paper feeds stage 2 the in-sample risks. This ablation is
-  off by default; run the example with `--oof` to add it (with `--root` for
-  the real data).
+  on out-of-fold stage-1 risks from 5 inner folds (stratified by event,
+  processors refitted per inner fold); test risks come from the full-fold
+  models. The paper uses in-sample risks. Add it with `--oof`.
 - **Linear vs. MLP head:** "two-stage mlp" uses MLP heads (64 hidden units) in
   stage 1, with the linear stage 2; "joint mlp" is one MLP over all
   modalities.
 - **Hyperparameter sweep** on "joint mlp", one change at a time: hidden_dim 16
   ("h=16"), dropout 0.3 ("p=0.3"), learning rate 1e-3 ("lr=1e-3").
-- **Embedding reducer:** the z-score is followed by one of `pca` (the paper),
+- **Embedding reducer:** after the z-score, one of `pca` (the paper),
   `kernel_pca` (RBF kernel), `fast_ica` (unit-variance whitening) or
-  `random_projection` (Gaussian), all seeded with 42 and at the same size.
-  Each reducer is scored on the paper's pipeline: the three embedding
-  unimodal models and "two-stage" (fusion over all five modalities). Run it
-  with `--reduction-ablation`; it runs only this ablation.
+  `random_projection` (Gaussian), seeded with 42, at the same size. It is
+  scored on the three embedding models and "two-stage". `--reduction-ablation`
+  runs only this ablation.
 
 ## Synthetic data
 
 300 patients, 5 folds; about 100 s on an 8-core CPU by default, and about
-265 s with `--oof`. The extra 160 s come from "two-stage oof": 25 inner
-`set_task` calls and 125 more stage-1 fits over the 5 folds.
+265 s with `--oof` (25 inner `set_task` calls and 125 more stage-1 fits).
 
 | Configuration     | C-index       |
 | ----------------- | ------------- |
@@ -96,48 +83,21 @@ All are novel relative to the paper.
 | joint mlp p=0.3   | 0.783 ± 0.030 |
 | joint mlp lr=1e-3 | 0.780 ± 0.016 |
 
-Per-cohort C-index (mean over 5 folds; canc is constant within a cohort, so it
-scores 0.5):
-
-| Cohort   | demo  | canc  | expr  | hist  | text  | two-stage | two-stage oof |
-| -------- | ----- | ----- | ----- | ----- | ----- | --------- | ------------- |
-| TCGA-OV  | 0.517 | 0.500 | 0.650 | 0.555 | 0.697 | 0.758     | 0.745         |
-| TCGA-UCS | 0.570 | 0.500 | 0.712 | 0.611 | 0.709 | 0.832     | 0.819         |
-| TCGA-UVM | 0.489 | 0.500 | 0.630 | 0.646 | 0.686 | 0.785     | 0.779         |
-
-Stage-2 hazard ratios exp(coef), mean over 5 folds:
-
-| Modality | two-stage | two-stage oof |
-| -------- | --------- | ------------- |
-| demo     | 1.161     | 0.991         |
-| canc     | 1.416     | 1.403         |
-| expr     | 2.241     | 2.125         |
-| hist     | 1.679     | 1.489         |
-| text     | 2.283     | 2.120         |
-
 Findings:
 
-- Every modality beats 0.5, and the paper's two-stage fusion (0.793) beats the
-  best single modality (text, 0.681) by 0.11.
-- Two-stage vs. joint fusion (0.793 vs. 0.777) is within one std. On a second
-  synthetic draw (seed 1, 200 patients, 4 PCA components) joint wins (0.797
-  vs. 0.776), so this data does not separate the two.
-- Out-of-fold stage-1 risks do not help here (0.782 vs. 0.793, within one
-  std). With 8 components per modality the linear stage-1 models likely
-  overfit little, so in-sample risks are close to out-of-fold ones; the
-  hazard ratios shrink only a little.
-- MLP heads in stage 1 hurt fusion (0.649). Their in-sample training risks
-  overfit, so stage 2 learns weights that do not hold on the test fold.
-- On joint fusion, the MLP head is no better than the linear head (0.773 vs.
-  0.777): the synthetic hazard is linear. Dropout 0.3 (0.783), hidden size 16
-  (0.751) and lr 1e-3 (0.780) all stay within about one std of the default
-  MLP, so the sweep shows no clear effect.
+- Two-stage fusion (0.793) beats the best single modality (text, 0.681) by
+  0.11. Joint fusion (0.777) is within one std; on a second draw (seed 1, 200
+  patients, 4 components) joint wins, 0.797 vs. 0.776.
+- Out-of-fold risks do not help (0.782, within one std): with 8 components the
+  stage-1 models overfit little.
+- MLP heads in stage 1 hurt fusion (0.649): their in-sample risks overfit. On
+  joint fusion the MLP head (0.773) is no better than the linear head, as the
+  synthetic hazard is linear; the sweep rows are within about one std.
 
 ### Embedding reducer
 
-`--reduction-ablation`: 300 patients, 5 folds, 8 components per modality
-(32-dim embeddings); about 200 s on an 8-core CPU. Same synthetic data and
-seed as above, so the `pca` row equals the main table.
+`--reduction-ablation` on the same synthetic data and seed (8 components per
+modality), about 200 s on an 8-core CPU; the `pca` row equals the main table.
 
 | Reducer           | expr          | hist          | text          | two-stage     |
 | ----------------- | ------------- | ------------- | ------------- | ------------- |
@@ -148,39 +108,94 @@ seed as above, so the `pca` row equals the main table.
 
 Findings:
 
-- FastICA scores the same as PCA to three decimals. Its sources are an
-  invertible linear map of the PCA scores. Without a penalty, a linear Cox
-  model gives the same risks on any invertible linear map of its inputs.
-  The ridge penalty changes this only through the scale of each input, and
-  here it is weak: `weight_decay = 0.1 / n_events`, about 1e-3 (about 119
-  events per training fold). So the risks differ by only about 2e-3 and
-  the C-index does not change. This holds only for this weak penalty; a
-  stronger ridge can separate the two. FastICA also did not converge in any
-  of the 15 fits (sklearn `ConvergenceWarning`, default `max_iter` 200). Its
-  sources are then not fully independent, but they are still an invertible
-  map of the PCA scores, so the argument above still holds.
-- Kernel PCA (RBF) is slightly below PCA on every modality (by 0.005 to
-  0.009) and loses 0.031 on fusion. The synthetic signal is linear, so a
-  nonlinear kernel has nothing to gain.
-- The random projection keeps 8 random directions instead of the
-  high-variance ones, so it misses part of the signal: text drops by 0.041
-  and fusion by 0.055. hist is the only modality where it is higher (0.600
-  vs. 0.584, within one std).
-- All other differences, kernel PCA's fusion drop included, are within
-  about one std over folds. This synthetic data favors PCA by design (the
-  signal lies in the high-variance directions); it is not evidence for
-  real embeddings. On the real data the ranking differs (see the real-data
-  reducer table below).
+- FastICA equals PCA to three decimals: its sources are an invertible linear
+  map of the PCA scores (also without convergence in the 15 fits, default
+  `max_iter` 200), and the ridge is weak (`weight_decay` about 1e-3).
+- Kernel PCA (RBF) is 0.005 to 0.009 below PCA per modality and 0.031 on
+  fusion: the synthetic signal is linear.
+- The random projection keeps 8 random directions, not the high-variance ones:
+  text drops by 0.041 and fusion by 0.055; hist is higher (0.600 vs. 0.584,
+  within one std).
+- The other differences are within about one std. This data favors PCA by
+  design (the signal lies in the high-variance directions).
+
+## Run on real data
+
+PyHealth ships no TCGA data. You make the input folder with the public
+[tcga-multimodal-embeddings][emb] repository, then run this example on it.
+
+### 1. Make the input folder
+
+Follow the sections [Quick start][emb-quick] and [PyHealth input
+folder][emb-export] of that repository's README. Keep the default cohort of
+`select_cohort.py` (the 10 smallest TCGA cohorts, 873 patients) to reproduce
+the results below. Embedding generation needs a GPU for `expr` and `text`, and
+your own approved Hugging Face access for `hist`. The export writes this
+layout; `--root` must point to it:
+
+```
+<root>/
+    clinical.csv        # one row per case in split_cases.csv
+    split_cases.csv     # case_id, split (the paper's CV fold 0-4)
+    embeddings/
+        {expr,hist,text}/<case_id>/<file_id>.npy  # one float32 vector
+```
+
+Sources and licences are in [Data access and licences][emb-licences]. The
+clinical data and folds come from the authors' repository,
+[StevenSong/multimodal-cancer-modeling][authors]. The `hist` (UNI2-h)
+embeddings may not be shared: always generate your own.
+
+[emb]: https://github.com/YaseenM2/tcga-multimodal-embeddings
+[emb-quick]: https://github.com/YaseenM2/tcga-multimodal-embeddings#quick-start
+[emb-export]: https://github.com/YaseenM2/tcga-multimodal-embeddings#pyhealth-input-folder
+[emb-licences]: https://github.com/YaseenM2/tcga-multimodal-embeddings#data-access-and-licences
+[authors]: https://github.com/StevenSong/multimodal-cancer-modeling
+
+### 2. Run the example
+
+From the root of this PyHealth repository, in a new virtual environment
+(Python 3.12 or 3.13), not the one of the embeddings repository:
+
+```bash
+python3.12 -m venv .venv && . .venv/bin/activate  # uv: uv venv -p 3.12
+pip install -e .  # or, with uv: uv pip install -e .
+python examples/tcga_survival_cox_survival.py --root /path/to/pyhealth_root \
+    --cache-dir /path/to/pyhealth_cache --num-workers 4
+```
+
+- `--root`: the absolute path of `pyhealth_root` (Quick start step 6, the
+  `--output` of `export_pyhealth.py`). It must be writable: the loader writes
+  its `tcga_multimodal_*-pyhealth.csv` index files into it.
+- `--cache-dir`: a new folder, or the one of an earlier run to reuse its
+  cache. Optional; see the cache note below.
+- Add `--oof` to also run the "two-stage oof" ablation.
+- Run `--reduction-ablation` separately: it runs only the reducer ablation and
+  ignores `--reduction` and `--oof`.
+
+Each fold prints `fold 0 (1/5): samples built, training`, where 0 is the
+`split` value (prefixed by the reducer with `--reduction-ablation`); the first
+one after about 30 s. PyHealth's `Worker` and `Rank` lines repeat per worker,
+at the first task transform and at each fold's sample build. The macOS torch
+warning `Redirects are currently not supported` is harmless. So is
+`Ignoring token ... not seen in fit`: a demographic bin (e.g. `age:(0, 20]`)
+occurs only in the test fold. At the end it prints the pooled, per-cohort and
+hazard-ratio tables below and the runtime. Runtimes on an 8-core CPU with
+`--num-workers 4`: about 270 s by default, 1,460 s with `--oof` and 1,240 s
+with `--reduction-ablation`.
+
+After a run that did not finish (also one you stopped on purpose), delete the
+cache: PyHealth's `set_task` can leave a partial sample cache behind. With
+`--cache-dir`, the cache is a subfolder `<cache-dir>/<id>`. Without it, a
+warning at the start names the folder.
 
 ## Real data
 
-The 10 smallest TCGA cohorts, 873 patients, PCA 256, 5 folds, 8-core CPU,
-4 workers: about 270 s by default, and about 1,460 s with `--oof`. The
-`--oof` run adds 125 stage-1 fits and 25 inner `set_task` calls; their
-caches were cold, the outer ones warm. A warm rerun was not measured; it
-still has the 125 extra fits. The paper column is the paper's 5-fold C-index
-on all 32 cohorts (Tables 1 and 2, PCA 256), so it is not a like-for-like
-target.
+The 10 smallest TCGA cohorts, 873 patients, PCA 256, 5 folds; runtimes are in
+"Run on real data". In the `--oof` run, the 25 inner `set_task` caches were
+cold and the outer ones warm; a warm rerun was not measured (it still has the
+125 extra stage-1 fits). The paper column is the paper's 5-fold C-index on all
+32 cohorts (Tables 1 and 2, PCA 256), so it is not a like-for-like target.
 
 | Configuration     | C-index       | Paper |
 | ----------------- | ------------- | ----- |
@@ -198,23 +213,11 @@ target.
 | joint mlp p=0.3   | 0.705 ± 0.021 |       |
 | joint mlp lr=1e-3 | 0.689 ± 0.029 |       |
 
-After an interrupted run, delete the cache: PyHealth's `set_task` can leave
-a partial sample cache behind. The cache is the `--cache-dir` folder, or,
-without it, `<user cache dir>/pyhealth` (`~/.cache/pyhealth` on Linux,
-`~/Library/Caches/pyhealth` on macOS; the run logs the path).
-
-Caches written before the `embedding_reduction` processor are not reused:
-its registry name and its `method` argument are part of the `set_task` cache
-key, so the first run after the update rebuilds every sample cache once.
-
 Per-cohort C-index, two-stage fusion vs. the best unimodal model of
 demo/expr/hist/text (mean over the folds with a comparable pair; DLBC has one
-in 4 folds). The paper's columns are from its Table 17: models trained on all
-32 cohorts, scored on each cohort's test cases. The paper does not report
-DLBC.
-
-"Test" is the mean test-fold size, deaths in parentheses (the paper's folds,
-so the same as in its Table 17).
+in 4 folds). "Test" is the mean test-fold size, deaths in parentheses. The
+paper's columns are from its Table 17 (same folds): models trained on all 32
+cohorts, scored on each cohort's test cases; it does not report DLBC.
 
 | Cohort    | Test        | Best uni   | Two-stage | Two-stage oof | Paper uni  | Paper fused |
 | --------- | ----------- | ---------- | --------- | ------------- | ---------- | ----------- |
@@ -243,49 +246,38 @@ all 32 cohorts, in-sample stage 1).
 
 Findings:
 
-- Two-stage fusion (0.711) beats each embedding modality (0.660-0.664) by
-  about 0.05, but not cancer type alone (0.709). The pooled C-index over 10
-  cohorts mostly ranks the cohorts; the paper's 0.793 on 32 cohorts has much
-  more data per model.
+- Two-stage fusion (0.711 ± 0.030) is about 0.05 above each embedding modality
+  (0.660-0.664; within one std for text, 0.060) and within the noise of cancer
+  type alone (0.709 ± 0.016). The pooled C-index mostly ranks the 10 cohorts;
+  the paper's 0.793 on 32 cohorts has much more data per model.
 - Joint fusion is clearly worse (0.651, 0.06 below two-stage): one linear
   model over about 800 inputs fits the roughly 700 training patients perfectly
   (training C-index 1.0) and does not generalize.
-- MLP heads trained for 300 steps beat the converged linear joint model
-  (0.689-0.705 vs. 0.651); this is likely early stopping, not a better head:
-  the linear joint model at lr 1e-3 and 300 steps (not converged) scores 0.690
-  and 0.664 on folds 0 and 1, vs. 0.656 and 0.630 converged. The hidden-size,
-  dropout and lr rows are within about one std of each other. "two-stage mlp"
-  (0.726) vs. "two-stage" (0.711) is within one std.
-- Out-of-fold stage-1 risks lift fusion from 0.711 to 0.739 (above cancer
-  type alone, 0.709) and OV from 0.509 to 0.592. In-sample, the embedding
-  models fit the roughly 700 training patients far better than the test
-  fold, so stage 2 trusts them too much: hazard ratios 3.5 to 15.5 for
-  expr/hist/text and 0.69 for canc. With out-of-fold risks the embeddings
-  get 1.12 to 1.20 and canc 1.65, so cancer type leads. The paper's Table 8
-  (in-sample, 32 cohorts) has embedding ratios of 2.0 to 2.2 and canc 0.64:
-  with about 9 times more patients its in-sample risks overfit less.
-- The exact-solver analysis of the same objective gives 0.736 pooled and
-  0.567 on OV for the out-of-fold variant, vs. 0.739 and 0.592 here. Likely
-  causes: the inner processor refit (the analysis reused the outer-fold PCA),
-  the inner fold draw (it may equal the analysis's, which used the same
-  seeds), and Adam at 3,000 steps vs. the exact Newton solver on the 125
-  inner fits. The OV gap (0.025) is well within noise: OV has about 8 test
-  patients and about 4 deaths per fold, and its std over folds is 0.103.
+- MLP heads (300 steps) beat the converged linear joint model (0.689-0.705 vs.
+  0.651), likely by early stopping: the linear joint model at lr 1e-3 and
+  300 steps scores 0.690 and 0.664 on folds 0 and 1, vs. 0.656 and 0.630
+  converged. The sweep rows, and "two-stage mlp" (0.726) vs. "two-stage", are
+  within about one std.
+- Out-of-fold stage-1 risks lift fusion from 0.711 to 0.739 (about one std;
+  above cancer type alone, 0.709) and OV from 0.509 to 0.592 (noise).
+  In-sample, stage 2 trusts the overfit embedding models too much: hazard
+  ratios 3.5 to 15.5 for expr/hist/text and 0.69 for canc; out-of-fold, 1.12
+  to 1.20 and canc 1.65, so cancer type leads. The paper's Table 8 (in-sample,
+  32 cohorts, about 9 times more patients) has 2.0 to 2.2 and canc 0.64.
 - Within cohorts, two-stage fusion beats the best unimodal model in 3 of 10
   cohorts (CESC, ESCA, UVM). Test folds have 7 to 50 patients and 1.4 to 12.2
-  deaths, so the per-cohort std over folds is 0.05 to 0.44. CHOL and DLBC
-  (under 10 test patients, DLBC with one fold without a comparable pair) are
-  noise; the paper also reports CHOL below 0.5 and leaves out DLBC.
+  deaths, so the per-cohort std over folds is 0.05 to 0.44. CHOL, DLBC and OV
+  (under 10 test patients; OV about 8 with about 4 deaths per fold, std 0.103)
+  are noise; the paper also reports CHOL below 0.5 and leaves out DLBC.
 
 ### Embedding reducer
 
-`--reduction-ablation` on the same 873 patients: 256 components per
-modality, 5 folds, 8-core CPU, 4 workers, cold caches: about 1,240 s. The
-`pca` row equals the main real-data table. Every reducer completed on every
-fold; no `n_components` bound was hit. expr has 256 dims, so 256
-components is its full width: PCA, FastICA and the random projection map
-expr by an invertible linear map and do not reduce it. Kernel PCA takes its
-256 components from the kernel matrix of about 700 training patients.
+`--reduction-ablation` on the same 873 patients: 256 components per modality,
+5 folds, cold caches; the `pca` row equals the main table. Every reducer
+completed on every fold, with no `n_components` bound hit. expr has 256 dims,
+so PCA, FastICA and the random projection map it by an invertible linear map
+and do not reduce it. Kernel PCA takes its 256 components from the kernel
+matrix of about 700 training patients.
 
 | Reducer           | expr          | hist          | text          | two-stage     |
 | ----------------- | ------------- | ------------- | ------------- | ------------- |
@@ -297,26 +289,20 @@ expr by an invertible linear map and do not reduce it. Kernel PCA takes its
 Findings:
 
 - Kernel PCA (RBF) is the best reducer here, the reverse of the synthetic
-  data: +0.045 to +0.049 on each embedding modality (more than one std on
-  expr and hist; within one std on text, whose PCA std is 0.060) and +0.022
-  on fusion (within one std). Each kernel-PCA modality scores about
-  the same as cancer type alone (0.709). A likely cause is that the leading
-  RBF components mostly encode the cohort, so each model mostly ranks the
-  cohorts. This was not checked per cohort.
+  data: +0.045 to +0.049 per embedding modality (more than one std on expr and
+  hist, within one std on text) and +0.022 on fusion (within one std). Each
+  kernel-PCA modality scores about as cancer type alone (0.709), likely
+  because the leading RBF components encode the cohort (not checked).
 - FastICA is no longer equal to PCA: expr drops by 0.025, text by 0.010 and
-  fusion by 0.011, all within about one std. With 256 components on about
-  700 training patients, the ridge penalty and the 3,000 Adam steps are not
-  invariant to the unit-variance rescaling of the sources, so the
-  invertible-map argument of the synthetic data does not hold. This cause
-  is not verified. FastICA converged in all 15 fits, in 114 to 177 of 200
-  iterations (a separate refit of the same `FastICA` on the same float64
-  training folds; the run log also shows no sklearn `ConvergenceWarning`).
+  fusion by 0.011, all within about one std. A likely cause (not verified):
+  the ridge and the 3,000 Adam steps are not invariant to the unit-variance
+  rescaling of the sources. FastICA converged in all 15 fits.
 - The random projection loses on hist (-0.071) and text (-0.041), where it
-  reduces 1536 and 4096 dims to 256, and on fusion (-0.050). On expr, where
-  it does not reduce, it is within one std of PCA (0.674 vs. 0.660).
-- Two-stage fusion beats every embedding modality for PCA, kernel PCA and
-  FastICA. With the random projection it is below expr (0.661 vs. 0.674),
-  so fusion does not beat the best modality. With kernel PCA, fusion also
-  beats cancer type alone (0.733 vs. 0.709), as the out-of-fold variant
-  does with PCA (0.739). PCA, the paper's choice, is not the best reducer
-  on these 10 cohorts.
+  reduces 1536 and 4096 dims to 256, and on fusion (-0.050). On expr, where it
+  does not reduce, it is within one std of PCA (0.674 vs. 0.660).
+- Two-stage fusion is above every embedding modality for PCA, kernel PCA and
+  FastICA, by about one std or less with PCA (text), kernel PCA and FastICA
+  (hist); with the random projection it is below expr (0.661 vs. 0.674). With
+  kernel PCA, fusion is above cancer type alone by about one std (0.733 vs.
+  0.709). PCA, the paper's choice, is not the best reducer on these 10
+  cohorts.
