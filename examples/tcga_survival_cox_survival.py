@@ -82,7 +82,7 @@ from pyhealth.processors.embedding_reduction_processor import (
     REDUCTION_METHODS,
 )
 from pyhealth.tasks import MultimodalSurvivalPrediction
-from pyhealth.tasks.survival import EMBEDDING_MODALITIES
+from pyhealth.tasks.tcga_multimodal_survival import EMBEDDING_MODALITIES
 from pyhealth.trainer import Trainer
 
 logger = logging.getLogger(__name__)

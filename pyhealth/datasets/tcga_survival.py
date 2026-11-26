@@ -23,7 +23,7 @@ import pandas as pd
 import polars as pl
 
 from ..tasks import MultimodalSurvivalPrediction
-from ..tasks.survival import EMBEDDING_MODALITIES
+from ..tasks.tcga_multimodal_survival import EMBEDDING_MODALITIES
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)

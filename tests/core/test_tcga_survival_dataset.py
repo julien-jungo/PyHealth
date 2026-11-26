@@ -474,7 +474,8 @@ class TestMultimodalSurvivalPrediction(unittest.TestCase):
 
     def test_patient_missing_modality_skipped(self) -> None:
         embeddings = {k: v for k, v in self.all_embeddings.items() if k != "hist"}
-        with self.assertLogs("pyhealth.tasks.survival", "INFO") as log:
+        task_logger = "pyhealth.tasks.tcga_multimodal_survival"
+        with self.assertLogs(task_logger, "INFO") as log:
             self.assertEqual(self.run_task(embeddings=embeddings), [])
         self.assertIn("no hist embedding", log.output[0])
 

@@ -102,6 +102,12 @@ class CoxSurvivalModel(BaseModel):
     partial likelihood is invariant to shifting all risks. Training minimizes
     the negative Cox partial likelihood (Breslow ties).
 
+    This is a generic Cox head: it takes any number of dense feature keys
+    (one per modality, or one for a unimodal model) and is not tied to a
+    modality or encoder. The Cox head of
+    :class:`~pyhealth.models.BulkRNABert` is specific to RNA-seq and sits on
+    that encoder.
+
     The risk sets are those of each batch, so mini-batch training optimizes a
     different objective than the full partial likelihood. Trained full-batch
     (``batch_size`` = training set size) with the paper's ridge penalty
