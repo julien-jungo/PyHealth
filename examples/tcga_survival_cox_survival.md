@@ -169,7 +169,8 @@ Findings:
 - All other differences, kernel PCA's fusion drop included, are within
   about one std over folds. This synthetic data favors PCA by design (the
   signal lies in the high-variance directions); it is not evidence for
-  real embeddings, where the reducer ablation was not run.
+  real embeddings. On the real data the ranking differs (see the real-data
+  reducer table below).
 
 ## Real data
 
@@ -275,3 +276,47 @@ Findings:
   deaths, so the per-cohort std over folds is 0.05 to 0.44. CHOL and DLBC
   (under 10 test patients, DLBC with one fold without a comparable pair) are
   noise; the paper also reports CHOL below 0.5 and leaves out DLBC.
+
+### Embedding reducer
+
+`--reduction-ablation` on the same 873 patients: 256 components per
+modality, 5 folds, 8-core CPU, 4 workers, cold caches: about 1,240 s. The
+`pca` row equals the main real-data table. Every reducer completed on every
+fold; no `n_components` bound was hit. expr has 256 dims, so 256
+components is its full width: PCA, FastICA and the random projection map
+expr by an invertible linear map and do not reduce it. Kernel PCA takes its
+256 components from the kernel matrix of about 700 training patients.
+
+| Reducer           | expr          | hist          | text          | two-stage     |
+| ----------------- | ------------- | ------------- | ------------- | ------------- |
+| pca (paper)       | 0.660 ± 0.021 | 0.664 ± 0.037 | 0.661 ± 0.060 | 0.711 ± 0.030 |
+| kernel_pca        | 0.709 ± 0.027 | 0.709 ± 0.032 | 0.706 ± 0.032 | 0.733 ± 0.023 |
+| fast_ica          | 0.635 ± 0.029 | 0.663 ± 0.040 | 0.651 ± 0.049 | 0.700 ± 0.023 |
+| random_projection | 0.674 ± 0.018 | 0.593 ± 0.039 | 0.620 ± 0.016 | 0.661 ± 0.035 |
+
+Findings:
+
+- Kernel PCA (RBF) is the best reducer here, the reverse of the synthetic
+  data: +0.045 to +0.049 on each embedding modality (more than one std on
+  expr and hist; within one std on text, whose PCA std is 0.060) and +0.022
+  on fusion (within one std). Each kernel-PCA modality scores about
+  the same as cancer type alone (0.709). A likely cause is that the leading
+  RBF components mostly encode the cohort, so each model mostly ranks the
+  cohorts. This was not checked per cohort.
+- FastICA is no longer equal to PCA: expr drops by 0.025, text by 0.010 and
+  fusion by 0.011, all within about one std. With 256 components on about
+  700 training patients, the ridge penalty and the 3,000 Adam steps are not
+  invariant to the unit-variance rescaling of the sources, so the
+  invertible-map argument of the synthetic data does not hold. This cause
+  is not verified. FastICA converged in all 15 fits, in 114 to 177 of 200
+  iterations (a separate refit of the same `FastICA` on the same float64
+  training folds; the run log also shows no sklearn `ConvergenceWarning`).
+- The random projection loses on hist (-0.071) and text (-0.041), where it
+  reduces 1536 and 4096 dims to 256, and on fusion (-0.050). On expr, where
+  it does not reduce, it is within one std of PCA (0.674 vs. 0.660).
+- Two-stage fusion beats every embedding modality for PCA, kernel PCA and
+  FastICA. With the random projection it is below expr (0.661 vs. 0.674),
+  so fusion does not beat the best modality. With kernel PCA, fusion also
+  beats cancer type alone (0.733 vs. 0.709), as the out-of-fold variant
+  does with PCA (0.739). PCA, the paper's choice, is not the best reducer
+  on these 10 cohorts.

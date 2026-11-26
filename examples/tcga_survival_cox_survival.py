@@ -33,10 +33,12 @@ Results (real, the 10 smallest TCGA cohorts, 873 patients, PCA 256): two-stage
 fusion reaches C-index 0.711 ± 0.030, vs. 0.793 in the paper on all 32
 cohorts. It beats each embedding modality (0.660-0.664) but not cancer type
 alone (0.709). Out-of-fold stage-1 risks ("two-stage oof", ``--oof``) reach
-0.739 ± 0.023.
-Setup, convergence checks, full synthetic and real tables, per-cohort results
-vs. the paper's Table 17, and caveats are in
-``examples/tcga_survival_cox_survival.md``.
+0.739 ± 0.023. With ``--reduction-ablation``, kernel PCA lifts each embedding
+modality to about 0.71 (cancer type alone: 0.709) and fusion to 0.733 ± 0.023,
+so PCA, the paper's reducer, is not the best one here. A likely cause is that
+the RBF components encode the cohort; this is not checked. Setup, convergence
+checks, full synthetic and real tables, per-cohort results vs. the paper's
+Table 17, and caveats are in ``examples/tcga_survival_cox_survival.md``.
 
 Usage (synthetic data in a temp dir by default):
     python examples/tcga_survival_cox_survival.py
