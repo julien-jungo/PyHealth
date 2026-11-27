@@ -26,7 +26,8 @@ Ablations (novel relative to the paper):
     - Embedding reducer: PCA (the paper), kernel PCA, FastICA or a Gaussian
       random projection (``--reduction-ablation``, run alone).
 
-Results (real data, the 10 smallest TCGA cohorts, 873 patients, PCA 256):
+Results (real data, 10 TCGA cohorts chosen for small UNI2-h feature downloads
+(at most 10 GB each), 873 patients, PCA 256):
 two-stage fusion reaches C-index 0.711 ± 0.030, vs. 0.793 in the paper on
 all 32 cohorts; it and cancer type alone (0.709 ± 0.016) are within the
 noise. Out-of-fold stage-1 risks reach 0.739 ± 0.023. With kernel PCA

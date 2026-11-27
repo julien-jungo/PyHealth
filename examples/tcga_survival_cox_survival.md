@@ -128,10 +128,11 @@ PyHealth ships no TCGA data. You make the input folder with the public
 
 Follow the sections [Quick start][emb-quick] and [PyHealth input
 folder][emb-export] of that repository's README. Keep the default cohort of
-`select_cohort.py` (the 10 smallest TCGA cohorts, 873 patients) to reproduce
-the results below. Embedding generation needs a GPU for `expr` and `text`, and
-your own approved Hugging Face access for `hist`. The export writes this
-layout; `--root` must point to it:
+`select_cohort.py` (10 TCGA cohorts chosen for small UNI2-h feature downloads
+(at most 10 GB each), 873 patients) to reproduce the results below. Embedding
+generation needs a GPU for `expr` and `text`, and your own approved Hugging
+Face access for `hist`. The export writes this layout; `--root` must point
+to it:
 
 ```
 <root>/
@@ -191,11 +192,12 @@ warning at the start names the folder.
 
 ## Real data
 
-The 10 smallest TCGA cohorts, 873 patients, PCA 256, 5 folds; runtimes are in
-"Run on real data". In the `--oof` run, the 25 inner `set_task` caches were
-cold and the outer ones warm; a warm rerun was not measured (it still has the
-125 extra stage-1 fits). The paper column is the paper's 5-fold C-index on all
-32 cohorts (Tables 1 and 2, PCA 256), so it is not a like-for-like target.
+10 TCGA cohorts chosen for small UNI2-h feature downloads (at most 10 GB each),
+873 patients, PCA 256, 5 folds; runtimes are in "Run on real data". In the
+`--oof` run, the 25 inner `set_task` caches were cold and the outer ones
+warm; a warm rerun was not measured (it still has the 125 extra stage-1
+fits). The paper column is the paper's 5-fold C-index on all 32 cohorts
+(Tables 1 and 2, PCA 256), so it is not a like-for-like target.
 
 | Configuration     | C-index       | Paper |
 | ----------------- | ------------- | ----- |
