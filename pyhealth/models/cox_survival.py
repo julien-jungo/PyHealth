@@ -111,11 +111,12 @@ class CoxSurvivalModel(BaseModel):
     The risk sets are those of each batch, so mini-batch training optimizes a
     different objective than the full partial likelihood. Trained full-batch
     (``batch_size`` = training set size) with the paper's ridge penalty
-    rescaled to ``weight_decay``, the linear head is the ridge CoxPH of the
-    paper. That mapping applies to the linear head only: on the MLP head,
-    ``weight_decay`` also shrinks the hidden layer's weights. ``Trainer``
-    applies no decay to parameters named ``bias``, so the hidden layer's
-    biases are not shrunk.
+    rescaled to ``weight_decay`` (``ridge_weight_decay`` in
+    ``examples/tcga_survival_cox_survival.py``), the linear head is the ridge
+    CoxPH of the paper. That mapping applies to the linear head only: on the
+    MLP head, ``weight_decay`` also shrinks the hidden layer's weights.
+    ``Trainer`` applies no decay to parameters named ``bias``, so the hidden
+    layer's biases are not shrunk.
 
     Labels follow :class:`~pyhealth.models.TrajSurv`: ``duration`` and
     ``event`` tensor outputs. ``mode`` is ``None``, so evaluate with

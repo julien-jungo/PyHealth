@@ -56,8 +56,8 @@ class TCGAMultimodalDataset(BaseDataset):
     This dataset follows the cohort of Song et al. (ML4H 2025): 7,982 TCGA
     patients across 32 cancer types. It loads one clinical table plus one
     table per requested embedding modality. Embeddings are not computed here;
-    they are read from ``.npy`` files produced beforehand (for example, with
-    the authors' ``embed/`` scripts and converted from HDF5 to ``.npy``).
+    they are read from ``.npy`` files produced beforehand (see Getting the
+    data).
 
     Expected layout of ``root``::
 
@@ -86,6 +86,19 @@ class TCGAMultimodalDataset(BaseDataset):
     ``tcga_multimodal_*-pyhealth.csv`` files into ``root``. Delete those files
     to rebuild them after adding, moving, or replacing input files.
 
+    Getting the data:
+        - Source: clinical data and folds from
+          https://github.com/StevenSong/multimodal-cancer-modeling; the
+          embeddings are generated with
+          https://github.com/YaseenM2/tcga-multimodal-embeddings, whose
+          ``export_pyhealth.py`` writes the layout above.
+        - Access: TCGA open access. The ``hist`` embeddings need your own
+          approved Hugging Face access to the gated UNI2-h features
+          (CC BY-NC-ND 4.0, no redistribution).
+        - ``root``: the folder that ``export_pyhealth.py`` writes.
+        - Step-by-step guide, commands and expected results: section "Run
+          on real data" of ``examples/tcga_survival_cox_survival.md``.
+
     Args:
         root: Directory containing ``clinical.csv`` and ``embeddings/``.
         tables: Embedding tables to load, any of ``"expr"``, ``"hist"``,
@@ -110,11 +123,14 @@ class TCGAMultimodalDataset(BaseDataset):
     Examples:
         >>> from pyhealth.datasets import TCGAMultimodalDataset
         >>> dataset = TCGAMultimodalDataset(root="/path/to/tcga_multimodal")
-        >>> dataset.stats()
-        >>> patient = dataset.get_patient("TCGA-OR-A5J1")
-        >>> slides = patient.get_events(event_type="hist")
+        ... # doctest: +SKIP
+        >>> dataset.stats()  # doctest: +SKIP
+        >>> patient = dataset.get_patient("TCGA-OR-A5J1")  # doctest: +SKIP
+        >>> slides = patient.get_events(event_type="hist")  # doctest: +SKIP
         >>> folds = dataset.get_fold_assignments()  # {"TCGA-OR-A5J1": 2, ...}
+        ... # doctest: +SKIP
         >>> samples = dataset.set_task()  # MultimodalSurvivalPrediction
+        ... # doctest: +SKIP
     """
 
     def __init__(
@@ -333,8 +349,9 @@ class TCGAMultimodalDataset(BaseDataset):
             ValueError: If no patient has a fold.
 
         Examples:
-            >>> folds = dataset.get_fold_assignments()
+            >>> folds = dataset.get_fold_assignments()  # doctest: +SKIP
             >>> test_ids = [pid for pid, fold in folds.items() if fold == 0]
+            ... # doctest: +SKIP
         """
         folds = {
             patient_id: int(float(fold))
@@ -356,8 +373,9 @@ class TCGAMultimodalDataset(BaseDataset):
             Mapping from patient ID to TCGA project ID.
 
         Examples:
-            >>> cancer_types = dataset.get_cancer_types()
+            >>> cancer_types = dataset.get_cancer_types()  # doctest: +SKIP
             >>> brca = [p for p, c in cancer_types.items() if c == "TCGA-BRCA"]
+            ... # doctest: +SKIP
         """
         return self._clinical_values("project")
 

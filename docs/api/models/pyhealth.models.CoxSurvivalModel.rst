@@ -1,6 +1,9 @@
 pyhealth.models.CoxSurvivalModel
 ================================
 
+Overview
+--------
+
 Cox proportional hazards model over dense per-patient features, from Song et
 al., `Multimodal Cancer Modeling in the Age of Foundation Model Embeddings
 <https://proceedings.mlr.press/v297/song26a.html>`_, ML4H 2025.
@@ -11,11 +14,9 @@ Inputs and outputs
 ------------------
 
 The inputs are dense feature fields: each must give one vector of fixed width
-per sample, such as a ``tensor`` field. ``feature_keys`` selects the fields;
-it defaults to all input fields, and one field gives a unimodal model. The
-model concatenates the selected fields. Labels follow
-:class:`~pyhealth.models.TrajSurv`: ``duration`` and ``event`` tensor
-outputs, or point ``duration_key`` and ``event_key`` at other output fields.
+per sample, such as a ``tensor`` or ``embedding_reduction`` field.
+``feature_keys`` selects the fields; it defaults to all input fields, and one
+field gives a unimodal model.
 
 ``forward`` returns:
 
@@ -25,27 +26,23 @@ outputs, or point ``duration_key`` and ``event_key`` at other output fields.
 - ``loss``: negative Cox partial likelihood (Breslow ties). Only with labels.
 - ``y_true``: duration and event, shape ``[B, 2]``. Only with labels.
 
-``mode`` is ``None``, so the Trainer reports only the loss. Evaluate with
-:func:`~pyhealth.metrics.survival.concordance_index` on ``Trainer.inference``
-output: ``y_true[:, 0]`` is the duration, ``y_true[:, 1]`` the event, and
-``y_prob`` the risk.
+Evaluate with :func:`~pyhealth.metrics.survival.concordance_index` on
+``Trainer.inference`` output: ``y_true[:, 0]`` is the duration,
+``y_true[:, 1]`` the event, and ``y_prob`` the risk.
 
-Training
---------
+Example and ablation
+--------------------
 
-The Cox risk sets are those of each batch. To get the paper's ridge CoxPH,
-use the linear head, train full-batch (``batch_size`` = training set size),
-and pass ``weight_decay = ridge_weight_decay(0.1, n_events)`` to
-``Trainer.train``, with ``n_events`` counted on the training set.
-``ridge_weight_decay`` is defined in the example below.
-
-Example
--------
-
-``examples/tcga_survival_cox_survival.py`` runs the TCGA pipeline with
-cross-validation and ablations. It is work in progress.
-
-TODO: two-stage fusion usage.
+``examples/tcga_survival_cox_survival.py`` runs the paper's two-stage late
+fusion on :class:`~pyhealth.datasets.TCGAMultimodalDataset` per CV fold:
+``stage1`` fits one unimodal model per modality (``feature_keys=[modality]``),
+and ``stage2`` fits a linear model on the stage-1 risks, z-scored with a
+``"zscore"`` :class:`~pyhealth.processors.TensorProcessor` fitted on the
+training risks. All fits are full-batch with
+``weight_decay = ridge_weight_decay(0.1, n_events)`` (defined in the example).
+The example also runs the joint-fusion, MLP-head and reducer ablations. Setup,
+results and the guide to get the real data are in
+``examples/tcga_survival_cox_survival.md``.
 
 API
 ---

@@ -557,7 +557,7 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - —
    * - :doc:`TCGA multimodal survival <datasets/pyhealth.datasets.TCGAMultimodalDataset>`
      - Open (UNI2-h features: request)
-     - `GitHub <https://github.com/StevenSong/multimodal-cancer-modeling>`__
+     - `Authors' GitHub <https://github.com/StevenSong/multimodal-cancer-modeling>`__ + `embeddings GitHub <https://github.com/YaseenM2/tcga-multimodal-embeddings>`__; guide: "Run on real data" in ``examples/tcga_survival_cox_survival.md``
      - No
      - —
    * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
