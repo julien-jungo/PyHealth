@@ -1,6 +1,5 @@
 Tasks
-===============
-
+========
 We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as:
 
 (i) Drug Recommendation [Yang et al. IJCAI 2021a, Yang et al. IJCAI 2021b, Shang et al. AAAI 2020]
@@ -214,14 +213,17 @@ Available Tasks
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Task Card <tasks/pyhealth.tasks.TaskCard>
+    CDC COVID-19 Mortality <tasks/pyhealth.tasks.CDCCOVIDMortalityPrediction>
     PBC Competing Risks <tasks/pyhealth.tasks.competing_risks_pbc>
     Competing-Risk Preprocessing <tasks/pyhealth.tasks.competing_risks>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
+    In-Hospital Mortality 48h (MIMIC-III) <tasks/pyhealth.tasks.InHospitalMortality48hMIMIC3>
     DearLLM Mortality (MIMIC-III/IV) <tasks/pyhealth.tasks.dearllm_mortality>
     ICU Admission (MEDS) <tasks/pyhealth.tasks.ICUAdmissionMEDS>
     Hospital Readmission (MEDS) <tasks/pyhealth.tasks.HospitalReadmissionMEDS>
     Prolonged Length of Stay (MEDS) <tasks/pyhealth.tasks.ProlongedLengthOfStayMEDS>
+    EviCare Diagnosis Prediction (MIMIC-III/IV) <tasks/pyhealth.tasks.evicare_diagnosis>
     ETHOS Timelines (MEDS) <tasks/pyhealth.tasks.EthosTimelineMEDS>
     ETHOS Zero-Shot Outcomes (MEDS) <tasks/pyhealth.tasks.EthosOutcomeMEDS>
     Delphi Trajectory (MEDS) <tasks/pyhealth.tasks.DelphiTrajectoryMEDS>
@@ -230,19 +232,26 @@ Available Tasks
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     BMD-HS Disease Classification <tasks/pyhealth.tasks.bmd_hs_disease_classification>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
+    CPSC 2018 HeartLang Classification <tasks/pyhealth.tasks.CPSC2018HeartLangClassification>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
+    PTB-XL Label-Group Classification <tasks/pyhealth.tasks.PTBXLLabelGroupClassification>
     PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
     PTB-XL Heartbeat MI <tasks/pyhealth.tasks.PTBXLHeartbeatMI>
+    PTB-XL Forecasting <tasks/pyhealth.tasks.PTBXLForecasting>
     Chapman-Shaoxing ECG Classification <tasks/pyhealth.tasks.ChapmanShaoxingSuperclassClassification>
+    Chapman-Shaoxing HeartLang Classification <tasks/pyhealth.tasks.ChapmanShaoxingHeartLangClassification>
+    CLIMB ECG Classification <tasks/pyhealth.tasks.CLIMBECGClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
+    PhysioNet 2012 In-Hospital Mortality <tasks/pyhealth.tasks.PhysioNet2012InHospitalMortality>
     PhysioNet 2012 Mortality <tasks/pyhealth.tasks.PhysioNet2012Mortality>
     Disease Progression (MIMIC-IV + Chest ImaGenome) <tasks/pyhealth.tasks.DiseaseProgressionMIMIC4>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     EHR + CXR In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRMortalityMIMIC4>
     EHR + CXR Phenotyping (MIMIC-IV) <tasks/pyhealth.tasks.EHRCXRPhenotypingMIMIC4>
+    Prior-Exam Preference Editing (MIMIC-CXR) <tasks/pyhealth.tasks.PriorExamPreferenceTask>
     EHR + CXR Decompensation (MIMIC-IV, MedMod) <tasks/pyhealth.tasks.MedModDecompensationMIMIC4>
     EHR Generation <tasks/pyhealth.tasks.generate_ehr>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
@@ -257,6 +266,7 @@ Available Tasks
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    Sleep-EDF Forecasting <tasks/pyhealth.tasks.SleepEDFForecasting>
     Sleep Staging (Cardio-Respiratory, NSRR) <tasks/pyhealth.tasks.SleepStagingCardioRespiratory>
     Sleep Staging Sequences (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSequenceSleepEDF>
     Sleep Staging (ISRUC) <tasks/pyhealth.tasks.SleepStagingISRUC>
@@ -283,6 +293,8 @@ Available Tasks
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     HAM10000 Skin Lesion Classification <tasks/pyhealth.tasks.HAM10000Classification>
+    PH2 Artifact Sensitivity Classification <tasks/pyhealth.tasks.PH2ArtifactClassification>
+    Polyp Detection <tasks/pyhealth.tasks.PolypDetection>
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
@@ -320,3 +332,5 @@ Available Tasks
     Value Set Pair Classification (VSAC) <tasks/pyhealth.tasks.ValueSetPairClassification>
     Time-to-event survival (GBSG and SUPPORT) <tasks/pyhealth.tasks.survival_time_to_event>
     TCGA RNA-seq Survival Prediction <tasks/pyhealth.tasks.TCGASurvivalPrediction>
+    Query-Focused EHR Summarization (MIMIC-III) <tasks/pyhealth.tasks.QueryFocusedEHRTask>
+    Multi-event survival (Rotterdam) <tasks/pyhealth.tasks.multi_event_survival_rotterdam>
