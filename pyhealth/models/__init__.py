@@ -143,6 +143,7 @@ from .mensa import MENSA as MENSA
 from .personalized_survival_moe import PersonalizedSurvivalMoE as PersonalizedSurvivalMoE
 from .cet import CET as CET
 from .trajsurv import TrajSurv as TrajSurv
+from .cox_survival import CoxSurvivalModel as CoxSurvivalModel
 from .knowrare import KnowRare as KnowRare
 from .trace import (
     TRACE as TRACE,

@@ -310,6 +310,7 @@ Available Tasks
     LNDb Texture Classification <tasks/pyhealth.tasks.LNDbTextureClassification>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     In-Hospital Survival (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalSurvivalMIMIC4>
+    Multimodal Cancer Survival (TCGA) <tasks/pyhealth.tasks.MultimodalSurvivalPrediction>
     BCSS Tile Classification <tasks/pyhealth.tasks.BCSSTileClassification>
     BCSS Tissue Segmentation <tasks/pyhealth.tasks.BCSSTissueSegmentation>
     METABRIC Survival Prediction <tasks/pyhealth.tasks.MetabricSurvivalPrediction>

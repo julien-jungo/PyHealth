@@ -570,6 +570,11 @@ PyHealth does not ship any data: you download each dataset from its source and p
      - `GDC <https://portal.gdc.cancer.gov/projects/TCGA-PRAD>`__
      - No
      - —
+   * - :doc:`TCGA multimodal survival <datasets/pyhealth.datasets.TCGAMultimodalDataset>`
+     - Open (UNI2-h features: request)
+     - `Authors' GitHub <https://github.com/StevenSong/multimodal-cancer-modeling>`__ + `embeddings GitHub <https://github.com/YaseenM2/tcga-multimodal-embeddings>`__; guide: "Run on real data" in ``examples/tcga_survival_cox_survival.md``
+     - No
+     - —
    * - :doc:`Brain Tumor MRI (Bhuvaji) <datasets/pyhealth.datasets.BrainTumorMRIDataset>`
      - Open (MIT, per the Kaggle listing)
      - `GitHub <https://github.com/SartajBhuvaji/Brain-Tumor-Classification-DataSet>`__, `Kaggle <https://www.kaggle.com/datasets/sartajbhuvaji/brain-tumor-classification-mri>`__
@@ -700,6 +705,7 @@ Available Datasets
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset
     datasets/pyhealth.datasets.TCGAPRADDataset
+    datasets/pyhealth.datasets.TCGAMultimodalDataset
     datasets/pyhealth.datasets.VSACDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.GoldTestSplit

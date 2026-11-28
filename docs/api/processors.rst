@@ -66,6 +66,7 @@ Each takes a required ``timeline``: the input fields on the label's timeline (th
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
 - ``TimeRegionImageProcessor``: For the same regions cropped from time-stamped images
 - ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
+- ``EmbeddingReductionProcessor``: Fixed-length embeddings, z-scored and reduced with ``method`` ``"pca"``, ``"kernel_pca"``, ``"fast_ica"`` or ``"random_projection"``, fitted on the training split
 - ``RawProcessor``: Pass-through processor for raw data
 
 Medical imaging processors require the optional dependencies:
@@ -84,6 +85,7 @@ pixels through the processor's ``collate`` method.
 - ``StageNetProcessor``: For StageNet model with lab measurements
 - ``StageNetTensorProcessor``: Tensor processing for StageNet
 - ``MultiHotProcessor``: For multi-hot encoding
+- ``MultiHotIgnoreUnknownProcessor``: Multi-hot encoding that gives tokens unseen during fitting no bit (``"multi_hot_ignore_unknown"``)
 - ``IgnoreProcessor``: A special feature processor that marks a feature to be ignored.
 - ``GraphProcessor``: For knowledge graph subgraph extraction (e.g., GraphCare, G-BERT)
 
@@ -623,6 +625,8 @@ API Reference
     processors/pyhealth.processors.RawProcessor
     processors/pyhealth.processors.IgnoreProcessor
     processors/pyhealth.processors.MultiHotProcessor
+    processors/pyhealth.processors.MultiHotIgnoreUnknownProcessor
+    processors/pyhealth.processors.EmbeddingReductionProcessor
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
     processors/pyhealth.processors.GraphProcessor

@@ -367,6 +367,7 @@ API Reference
     models/pyhealth.models.MENSA
     models/pyhealth.models.cet
     models/pyhealth.models.TrajSurv
+    models/pyhealth.models.CoxSurvivalModel
     models/pyhealth.models.KnowRare
     models/pyhealth.models.APRICOTM
     models/pyhealth.models.ProtoECGNet

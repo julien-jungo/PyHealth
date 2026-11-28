@@ -36,6 +36,18 @@ from .segmentation_label_processors import (
     SegmentationMultiClassLabelProcessor,
 )
 from .multi_hot_processor import MultiHotProcessor
+from .multi_hot_ignore_unknown_processor import (  # noqa: E402
+    MultiHotIgnoreUnknownProcessor,
+)
+from .embedding_reduction_processor import (  # noqa: E402
+    METHOD_FAST_ICA,
+    METHOD_KERNEL_PCA,
+    METHOD_PCA,
+    METHOD_RANDOM_PROJECTION,
+    REDUCTION_METHODS,
+    EmbeddingReductionProcessor,
+    validate_reduction,
+)
 from .nested_multihot_processor import NestedMultiHotProcessor
 from .nested_sequence_processor import (
     NestedFloatsProcessor,
@@ -108,6 +120,14 @@ __all__ = [
     "read_image_metadata",
     "LabelProcessor",
     "MultiHotProcessor",
+    "MultiHotIgnoreUnknownProcessor",
+    "EmbeddingReductionProcessor",
+    "METHOD_FAST_ICA",
+    "METHOD_KERNEL_PCA",
+    "METHOD_PCA",
+    "METHOD_RANDOM_PROJECTION",
+    "REDUCTION_METHODS",
+    "validate_reduction",
     "SegmentationBinaryLabelProcessor",
     "SegmentationMultiClassLabelProcessor",
     "NestedFloatsProcessor",
