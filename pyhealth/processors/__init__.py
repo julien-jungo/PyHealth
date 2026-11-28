@@ -36,8 +36,8 @@ from .segmentation_label_processors import (
     SegmentationMultiClassLabelProcessor,
 )
 from .multi_hot_processor import MultiHotProcessor
-from .multi_hot_ignore_unknown_processor import MultiHotIgnoreUnknownProcessor  # noqa: E402
-from .embedding_reduction_processor import (  # noqa: E402
+from .multi_hot_ignore_unknown_processor import MultiHotIgnoreUnknownProcessor
+from .embedding_reduction_processor import (
     METHOD_FAST_ICA,
     METHOD_KERNEL_PCA,
     METHOD_PCA,

@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, get_args
 
 import torch
-import torch.nn as nn
-from torch import Tensor
+from torch import Tensor, nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
